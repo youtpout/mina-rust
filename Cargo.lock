@@ -5678,6 +5678,8 @@ dependencies = [
  "redux",
  "reqwest",
  "rsa",
+ "rsexp",
+ "rsexp-derive",
  "serde",
  "serde_json",
  "serde_with",

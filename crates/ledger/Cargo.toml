@@ -52,6 +52,8 @@ postcard = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
 rayon = { workspace = true }
 redux = { workspace = true }
+rsexp = { workspace = true }
+rsexp-derive = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 serde_with = { workspace = true }
