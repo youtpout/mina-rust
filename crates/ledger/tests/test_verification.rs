@@ -1,7 +1,7 @@
 // Run this test with:
 // cargo test --package mina-tree --test test_zkapp
 
-use ark_ff::{Fp, fp};
+use ark_ff::{fp, Fp, One, Zero};
 use base64::{engine::general_purpose, Engine};
 use mina_curves::pasta::Fq;
 use mina_p2p_messages::v2::{
@@ -10,7 +10,13 @@ use mina_p2p_messages::v2::{
     PicklesProofProofsVerifiedMaxStableV2,
 };
 
-use mina_tree::{VerificationKey, proofs::{prover::make_padded_proof_from_p2p, verification::verify_with, verifiers::make_zkapp_verifier_index}};
+use mina_tree::{
+    proofs::{
+        prover::make_padded_proof_from_p2p, verification::verify_with,
+        verifiers::make_zkapp_verifier_index,
+    },
+    VerificationKey,
+};
 use rsexp::{OfSexp, Sexp};
 use serde::Deserialize;
 
@@ -66,24 +72,26 @@ fn test_proof_verification() {
         proof_from_b64_sexp_max(&proof_b64);
     assert!(proof.is_ok(), "proof decode failed: {proof:?}");
 
-  let vk_wire: MinaBaseVerificationKeyWireStableV1 =
-    MinaBaseVerificationKeyWireStableV1::from_base64(&vk_b64)
-        .map_err(|e| format!("binprot decode failure: {e:?}"))
-        .expect("vk decode failed");
+    let vk_wire: MinaBaseVerificationKeyWireStableV1 =
+        MinaBaseVerificationKeyWireStableV1::from_base64(&vk_b64)
+            .map_err(|e| format!("binprot decode failure: {e:?}"))
+            .expect("vk decode failed");
 
     let verification_key: VerificationKey = (&vk_wire).try_into().expect("vk wire -> vk runtime");
 
-     // Index
+    // Index
     let verifier_index = make_zkapp_verifier_index(&verification_key);
 
-    // Public input (à construire avec ton statement)
-    let public_input: Vec<Fq> = /* ... */ vec![];
+    // Public input
+    let mut public_input = vec![Fq::zero(); 40];
+    // public_input[0] = Fq::zero(); 
+    // public_input[1] = Fq::one(); 
 
     // Proof padded
     let proof = make_padded_proof_from_p2p(&proof.unwrap()).expect("pad proof");
 
     // Verify
-    let ok = verify_with(&verifier_index, &proof, &public_input).is_ok();
-    assert!(ok, "invalid proof");
-}
+    let result = verify_with(&verifier_index, &proof, &public_input);
 
+    assert!(result.is_ok(), "invalid proof: {:?}", result.err());
+}
