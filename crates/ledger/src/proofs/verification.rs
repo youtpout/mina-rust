@@ -496,7 +496,7 @@ where
     }
 }
 
-fn verify_with(
+pub fn verify_with(
     verifier_index: &VerifierIndex<Fq>,
     proof: &ProverProof<Fq>,
     public_input: &[Fq],

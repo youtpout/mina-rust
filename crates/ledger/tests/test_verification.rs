@@ -1,12 +1,16 @@
 // Run this test with:
 // cargo test --package mina-tree --test test_zkapp
 
+use ark_ff::{Fp, fp};
 use base64::{engine::general_purpose, Engine};
+use mina_curves::pasta::Fq;
 use mina_p2p_messages::v2::{
-    PicklesBaseProofsVerifiedStableV1, PicklesProofProofsVerified2ReprStableV2,
-    PicklesProofProofsVerified2ReprStableV2StatementFp, PicklesProofProofsVerifiedMaxStableV2,
+    MinaBaseVerificationKeyWireStableV1, PicklesBaseProofsVerifiedStableV1,
+    PicklesProofProofsVerified2ReprStableV2, PicklesProofProofsVerified2ReprStableV2StatementFp,
+    PicklesProofProofsVerifiedMaxStableV2,
 };
 
+use mina_tree::{VerificationKey, proofs::{prover::make_padded_proof_from_p2p, verification::verify_with, verifiers::make_zkapp_verifier_index}};
 use rsexp::{OfSexp, Sexp};
 use serde::Deserialize;
 
@@ -24,26 +28,62 @@ pub fn proof_from_b64_sexp_max(
         .map_err(|e| format!("S-exp -> proof(max) decode failure: {e:?}"))
 }
 
+pub fn vk_from_b64_binprot(vk_b64: &str) -> Result<MinaBaseVerificationKeyWireStableV1, String> {
+    // let bytes = general_purpose::STANDARD
+    //     .decode(vk_b64.trim())
+    //     .map_err(|e| format!("base64 decode failure: {e:?}"))?;
+
+    // let mut cur = Cursor::new(bytes);
+    MinaBaseVerificationKeyWireStableV1::from_base64(vk_b64)
+        .map_err(|e| format!("binprot decode failure: {e:?}"))
+}
+
 #[test]
-fn test_proof_verification() {
-    //let verification_key = "AACcenc1yLdGBm4xtUN1dpModROI0zovuy5rz2a94vfdBgG1C75BqviU4vw6JUYqODF8n9ivtfeU5s9PcpEGIP0htil2mfx8v2DB5RuNQ7VxJWkha0TSnJJsOl0FxhjldBbOY3tUZzZxHpPhHOKHz";
-    let proof_b64 = include_str!("proof.txt").to_string();
+fn test_proof_example_verification() {
     let proof_example_b64 =
         include_str!("../../../tests/files/zkapps/proof_string.txt").to_string();
-    let input = [1u8; 32];
 
+    let proof_example = proof_from_b64_sexp_max(&proof_example_b64);
 
-let proof_b64 = include_str!("proof.txt").trim();
-
-
-    let proof_example = PicklesProofProofsVerifiedMaxStableV2::deserialize(serde_json::Value::String(proof_example_b64.to_string()));
-    let proof = proof_from_b64_sexp_max(&proof_b64);
-
-    eprintln!("proof result = {:#?}", proof);
+    let proof_test = PicklesProofProofsVerifiedMaxStableV2::deserialize(serde_json::Value::String(
+        proof_example_b64,
+    ));
 
     assert!(
         proof_example.is_ok(),
-        "proof example decode failed: {proof:?}"
+        "proof example decode failed: {proof_example:?}"
     );
-   // assert!(proof.is_ok(), "proof decode failed: {proof:?}");
 }
+
+#[test]
+fn test_proof_verification() {
+    let input: [u8; 32] = [1u8; 32];
+
+    let proof_b64 = include_str!("proof.txt").to_string();
+    let vk_b64 = include_str!("vk.txt").to_string();
+
+    let proof: Result<PicklesProofProofsVerified2ReprStableV2, String> =
+        proof_from_b64_sexp_max(&proof_b64);
+    assert!(proof.is_ok(), "proof decode failed: {proof:?}");
+
+  let vk_wire: MinaBaseVerificationKeyWireStableV1 =
+    MinaBaseVerificationKeyWireStableV1::from_base64(&vk_b64)
+        .map_err(|e| format!("binprot decode failure: {e:?}"))
+        .expect("vk decode failed");
+
+    let verification_key: VerificationKey = (&vk_wire).try_into().expect("vk wire -> vk runtime");
+
+     // Index
+    let verifier_index = make_zkapp_verifier_index(&verification_key);
+
+    // Public input (à construire avec ton statement)
+    let public_input: Vec<Fq> = /* ... */ vec![];
+
+    // Proof padded
+    let proof = make_padded_proof_from_p2p(&proof.unwrap()).expect("pad proof");
+
+    // Verify
+    let ok = verify_with(&verifier_index, &proof, &public_input).is_ok();
+    assert!(ok, "invalid proof");
+}
+
