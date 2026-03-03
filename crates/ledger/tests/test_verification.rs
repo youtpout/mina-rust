@@ -11,11 +11,10 @@ use mina_p2p_messages::v2::{
 };
 
 use mina_tree::{
-    proofs::{
-        prover::make_padded_proof_from_p2p, verification::verify_with,
+    VerificationKey, proofs::{
+        prover::make_padded_proof_from_p2p, verification::{compute_deferred_values, run_checks, verify_with},
         verifiers::make_zkapp_verifier_index,
-    },
-    VerificationKey,
+    }
 };
 use rsexp::{OfSexp, Sexp};
 use serde::Deserialize;
@@ -83,12 +82,22 @@ fn test_proof_verification() {
     let verifier_index = make_zkapp_verifier_index(&verification_key);
 
     // Public input
-    let mut public_input = vec![Fq::zero(); 40];
+    let mut public_input: Vec<Fp<fp::MontBackend<mina_curves::pasta::fields::FrConfig, 4>, 4>> = vec![Fq::zero(); verifier_index.public];
     // public_input[0] = Fq::zero(); 
-    // public_input[1] = Fq::one(); 
+     public_input[1] = Fq::one(); 
+
+     let app_state = ();
+
+     let proof_unwrap=proof.unwrap();
+
+    // 
+    let deferred_values = compute_deferred_values(&proof_unwrap).expect("deferred values");
+    let checks_ok = run_checks(&proof_unwrap, &verifier_index);
+
+    eprintln!("public input: {:?}", verifier_index.public);
 
     // Proof padded
-    let proof = make_padded_proof_from_p2p(&proof.unwrap()).expect("pad proof");
+    let proof = make_padded_proof_from_p2p(&proof_unwrap).expect("pad proof");
 
     // Verify
     let result = verify_with(&verifier_index, &proof, &public_input);

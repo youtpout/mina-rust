@@ -496,7 +496,7 @@ where
     }
 }
 
-pub fn verify_with(
+fn verify_with(
     verifier_index: &VerifierIndex<Fq>,
     proof: &ProverProof<Fq>,
     public_input: &[Fq],
@@ -554,7 +554,7 @@ fn batch_verify(proofs: &[VerificationContext]) -> Result<(), VerifyError> {
     >(&group_map, &proofs)
 }
 
-fn run_checks(
+pub fn run_checks(
     proof: &PicklesProofProofsVerified2ReprStableV2,
     verifier_index: &VerifierIndex<Fq>,
 ) -> bool {
@@ -673,7 +673,7 @@ fn run_checks(
     errors.is_empty()
 }
 
-fn compute_deferred_values(
+pub fn compute_deferred_values(
     proof: &PicklesProofProofsVerified2ReprStableV2,
 ) -> anyhow::Result<DeferredValues<Fp>> {
     let bulletproof_challenges: Vec<Fp> = proof
