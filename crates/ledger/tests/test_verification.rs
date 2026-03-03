@@ -11,10 +11,15 @@ use mina_p2p_messages::v2::{
 };
 
 use mina_tree::{
-    VerificationKey, proofs::{
-        prover::make_padded_proof_from_p2p, verification::{compute_deferred_values, run_checks, verify_with},
+    proofs::{
+        prover::make_padded_proof_from_p2p,
+        verification::{
+            compute_deferred_values, get_message_for_next_step_proof,
+            get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with, VK,
+        },
         verifiers::make_zkapp_verifier_index,
-    }
+    },
+    VerificationKey,
 };
 use rsexp::{OfSexp, Sexp};
 use serde::Deserialize;
@@ -82,15 +87,16 @@ fn test_proof_verification() {
     let verifier_index = make_zkapp_verifier_index(&verification_key);
 
     // Public input
-    let mut public_input: Vec<Fp<fp::MontBackend<mina_curves::pasta::fields::FrConfig, 4>, 4>> = vec![Fq::zero(); verifier_index.public];
-    // public_input[0] = Fq::zero(); 
-     public_input[1] = Fq::one(); 
+    let mut public_input: Vec<Fp<fp::MontBackend<mina_curves::pasta::fields::FrConfig, 4>, 4>> =
+        vec![Fq::zero(); verifier_index.public];
+    // public_input[0] = Fq::zero();
+    public_input[1] = Fq::one();
 
-     let app_state = ();
+    let app_state = ();
 
-     let proof_unwrap=proof.unwrap();
+    let proof_unwrap = proof.unwrap();
 
-    // 
+    //
     let deferred_values = compute_deferred_values(&proof_unwrap).expect("deferred values");
     let checks_ok = run_checks(&proof_unwrap, &verifier_index);
 
@@ -103,4 +109,65 @@ fn test_proof_verification() {
     let result = verify_with(&verifier_index, &proof, &public_input);
 
     assert!(result.is_ok(), "invalid proof: {:?}", result.err());
+}
+
+#[test]
+fn test_verify_with() {
+    let proof_b64 = include_str!("proof.txt").to_string();
+    let vk_b64 = include_str!("vk.txt").to_string();
+
+    let proof: PicklesProofProofsVerified2ReprStableV2 =
+        proof_from_b64_sexp_max(&proof_b64).expect("proof decode");
+
+    let vk_wire: MinaBaseVerificationKeyWireStableV1 =
+        MinaBaseVerificationKeyWireStableV1::from_base64(&vk_b64).expect("vk decode");
+
+    let verification_key: VerificationKey = (&vk_wire).try_into().expect("vk wire -> vk runtime");
+
+    // 1) create vk index
+    let verifier_index = make_zkapp_verifier_index(&verification_key);
+
+    let vk = VK {
+        commitments: *verification_key.wrap_index.clone(),
+        index: &verifier_index,
+        data: (),
+    };
+
+    // 2) app_state empty
+    let app_state = ();
+
+    // 3) generate public input
+    let deferred_values = compute_deferred_values(&proof).expect("deferred values");
+    let checks_ok = run_checks(&proof, vk.index);
+
+    let msg_next_step = get_message_for_next_step_proof(
+        &proof.statement.messages_for_next_step_proof,
+        &vk.commitments,
+        &app_state,
+    )
+    .expect("message_for_next_step");
+
+    let msg_next_wrap =
+        get_message_for_next_wrap_proof(&proof.statement.proof_state.messages_for_next_wrap_proof)
+            .expect("message_for_next_wrap");
+
+    let prepared_statement = get_prepared_statement(
+        &msg_next_step,
+        &msg_next_wrap,
+        deferred_values,
+        &proof.statement.proof_state.sponge_digest_before_evaluations,
+    );
+
+    let npublic_input = vk.index.public;
+    let public_inputs = prepared_statement
+        .to_public_input(npublic_input)
+        .expect("to_public_input");
+
+    // 4) check proof
+    let prover_proof = make_padded_proof_from_p2p(&proof).expect("make_padded_proof");
+
+    match verify_with(vk.index, &prover_proof, &public_inputs) {
+        Ok(()) => assert!(checks_ok, "verify_with OK mais checks KO"),
+        Err(e) => panic!("invalid proof: {e:?}"),
+    }
 }
