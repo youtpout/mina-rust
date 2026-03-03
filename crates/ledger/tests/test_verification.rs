@@ -3,7 +3,7 @@
 
 use ark_ff::{fp, Fp, One, Zero};
 use base64::{engine::general_purpose, Engine};
-use mina_curves::pasta::Fq;
+use mina_curves::pasta::{Fq};
 use mina_p2p_messages::v2::{
     MinaBaseVerificationKeyWireStableV1, PicklesBaseProofsVerifiedStableV1,
     PicklesProofProofsVerified2ReprStableV2, PicklesProofProofsVerified2ReprStableV2StatementFp,
@@ -11,6 +11,7 @@ use mina_p2p_messages::v2::{
 };
 
 use mina_tree::{
+    account,
     proofs::{
         prover::make_padded_proof_from_p2p,
         verification::{
@@ -19,6 +20,7 @@ use mina_tree::{
         },
         verifiers::make_zkapp_verifier_index,
     },
+    scan_state::transaction_logic::zkapp_statement::{TransactionCommitment, ZkappStatement},
     VerificationKey,
 };
 use rsexp::{OfSexp, Sexp};
@@ -134,7 +136,10 @@ fn test_verify_with() {
     };
 
     // 2) app_state empty
-    let app_state = ();
+    let app_state: ZkappStatement = ZkappStatement {
+        account_update: TransactionCommitment(fp::Fp::one()),
+        calls: TransactionCommitment::empty(),
+    };
 
     // 3) generate public input
     let deferred_values = compute_deferred_values(&proof).expect("deferred values");
