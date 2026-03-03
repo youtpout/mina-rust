@@ -1,9 +1,10 @@
 // Run this test with:
 // cargo test --package mina-tree --test test_zkapp
 
-use ark_ff::{fp, Fp, One, Zero};
+use anyhow::{Context, Result};
+use ark_ff::{fp, One, Zero};
 use base64::{engine::general_purpose, Engine};
-use mina_curves::pasta::{Fq};
+use mina_curves::pasta::{Fp, Fq};
 use mina_p2p_messages::v2::{
     MinaBaseVerificationKeyWireStableV1, PicklesBaseProofsVerifiedStableV1,
     PicklesProofProofsVerified2ReprStableV2, PicklesProofProofsVerified2ReprStableV2StatementFp,
@@ -11,20 +12,28 @@ use mina_p2p_messages::v2::{
 };
 
 use mina_tree::{
-    account,
-    proofs::{
-        prover::make_padded_proof_from_p2p,
-        verification::{
-            compute_deferred_values, get_message_for_next_step_proof,
-            get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with, VK,
-        },
-        verifiers::make_zkapp_verifier_index,
-    },
-    scan_state::transaction_logic::zkapp_statement::{TransactionCommitment, ZkappStatement},
-    VerificationKey,
+    VerificationKey, account, proofs::{
+        prover::make_padded_proof_from_p2p, to_field_elements::ToFieldElements, verification::{
+            VK, compute_deferred_values, get_message_for_next_step_proof, get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with
+        }, verifiers::make_zkapp_verifier_index
+    }, scan_state::transaction_logic::zkapp_statement::{TransactionCommitment, ZkappStatement}
 };
 use rsexp::{OfSexp, Sexp};
 use serde::Deserialize;
+use serde_json::Value;
+use std::{fs, str::FromStr};
+
+#[derive(Clone, Copy, Debug)]
+pub struct AppState8(pub [Fp; 8]);
+
+
+impl ToFieldElements<Fp> for AppState8 {
+    fn to_field_elements(&self, out: &mut Vec<Fp>) {
+        // Push the 8 field elements in order.
+        out.extend_from_slice(&self.0);
+    }
+}
+
 
 pub fn proof_from_b64_sexp_max(
     proof_sexp_b64: &str,
@@ -40,83 +49,61 @@ pub fn proof_from_b64_sexp_max(
         .map_err(|e| format!("S-exp -> proof(max) decode failure: {e:?}"))
 }
 
-pub fn vk_from_b64_binprot(vk_b64: &str) -> Result<MinaBaseVerificationKeyWireStableV1, String> {
-    // let bytes = general_purpose::STANDARD
-    //     .decode(vk_b64.trim())
-    //     .map_err(|e| format!("base64 decode failure: {e:?}"))?;
 
-    // let mut cur = Cursor::new(bytes);
-    MinaBaseVerificationKeyWireStableV1::from_base64(vk_b64)
-        .map_err(|e| format!("binprot decode failure: {e:?}"))
+fn parse_tx_json_maybe_string(s: &str) -> anyhow::Result<Value> {
+    // The file can be either a JSON object, or a JSON string containing an escaped JSON object.
+    let v: Value = serde_json::from_str(s)?;
+    if let Value::String(inner) = v {
+        Ok(serde_json::from_str::<Value>(&inner)?)
+    } else {
+        Ok(v)
+    }
 }
 
-#[test]
-fn test_proof_example_verification() {
-    let proof_example_b64 =
-        include_str!("../../../tests/files/zkapps/proof_string.txt").to_string();
 
-    let proof_example = proof_from_b64_sexp_max(&proof_example_b64);
-
-    let proof_test = PicklesProofProofsVerifiedMaxStableV2::deserialize(serde_json::Value::String(
-        proof_example_b64,
-    ));
-
-    assert!(
-        proof_example.is_ok(),
-        "proof example decode failed: {proof_example:?}"
-    );
+fn fp_from_decimal_str(s: &str) -> Result<Fp> {
+    // Values are encoded as decimal strings in your tx JSON.
+    // mina_curves::pasta::Fp::from_str returns Result<_, ()>, so convert the unit error into anyhow.
+    Fp::from_str(s).map_err(|_| anyhow::anyhow!("invalid Fp decimal string: {s}"))
 }
 
-#[test]
-fn test_proof_verification() {
-    let input: [u8; 32] = [1u8; 32];
+pub fn load_app_state8_from_txn_file(raw: &str) -> anyhow::Result<AppState8> {
+    let v = parse_tx_json_maybe_string(&raw).context("parse txn.json")?;
 
-    let proof_b64 = include_str!("proof.txt").to_string();
-    let vk_b64 = include_str!("vk.txt").to_string();
+    // JSON path: accountUpdates[0].body.update.appState
+    let app = &v["accountUpdates"][0]["body"]["update"]["appState"];
+    let arr = app
+        .as_array()
+        .context("missing accountUpdates[0].body.update.appState array")?;
 
-    let proof: Result<PicklesProofProofsVerified2ReprStableV2, String> =
-        proof_from_b64_sexp_max(&proof_b64);
-    assert!(proof.is_ok(), "proof decode failed: {proof:?}");
+    if arr.len() != 8 {
+        anyhow::bail!("appState must have 8 elements, got {}", arr.len());
+    }
 
-    let vk_wire: MinaBaseVerificationKeyWireStableV1 =
-        MinaBaseVerificationKeyWireStableV1::from_base64(&vk_b64)
-            .map_err(|e| format!("binprot decode failure: {e:?}"))
-            .expect("vk decode failed");
+    let mut out = [Fp::zero(); 8];
 
-    let verification_key: VerificationKey = (&vk_wire).try_into().expect("vk wire -> vk runtime");
+    for (i, x) in arr.iter().enumerate() {
+        out[i] = match x {
+            // null means "no value provided in the update"; for verification messages we still need a field element.
+            Value::Null => Fp::zero(),
 
-    // Index
-    let verifier_index = make_zkapp_verifier_index(&verification_key);
+            // Decimal string field element.
+            Value::String(s) => fp_from_decimal_str(s)
+                .with_context(|| format!("parse appState[{i}] decimal field element"))?,
 
-    // Public input
-    let mut public_input: Vec<Fp<fp::MontBackend<mina_curves::pasta::fields::FrConfig, 4>, 4>> =
-        vec![Fq::zero(); verifier_index.public];
-    // public_input[0] = Fq::zero();
-    public_input[1] = Fq::one();
+            other => anyhow::bail!("appState[{i}] expected string or null, got {other}"),
+        };
+    }
 
-    let app_state = ();
-
-    let proof_unwrap = proof.unwrap();
-
-    //
-    let deferred_values = compute_deferred_values(&proof_unwrap).expect("deferred values");
-    let checks_ok = run_checks(&proof_unwrap, &verifier_index);
-
-    eprintln!("public input: {:?}", verifier_index.public);
-
-    // Proof padded
-    let proof = make_padded_proof_from_p2p(&proof_unwrap).expect("pad proof");
-
-    // Verify
-    let result = verify_with(&verifier_index, &proof, &public_input);
-
-    assert!(result.is_ok(), "invalid proof: {:?}", result.err());
+    Ok(AppState8(out))
 }
+
 
 #[test]
 fn test_verify_with() {
     let proof_b64 = include_str!("proof.txt").to_string();
     let vk_b64 = include_str!("vk.txt").to_string();
+    let txn_json: String = include_str!("txn.json").to_string();
 
     let proof: PicklesProofProofsVerified2ReprStableV2 =
         proof_from_b64_sexp_max(&proof_b64).expect("proof decode");
@@ -126,7 +113,6 @@ fn test_verify_with() {
 
     let verification_key: VerificationKey = (&vk_wire).try_into().expect("vk wire -> vk runtime");
 
-    // 1) create vk index
     let verifier_index = make_zkapp_verifier_index(&verification_key);
 
     let vk = VK {
@@ -135,13 +121,9 @@ fn test_verify_with() {
         data: (),
     };
 
-    // 2) app_state empty
-    let app_state: ZkappStatement = ZkappStatement {
-        account_update: TransactionCommitment(fp::Fp::one()),
-        calls: TransactionCommitment::empty(),
-    };
+    let app_state = load_app_state8_from_txn_file(&txn_json)
+        .expect("failed to load and parse appState from txn.json");
 
-    // 3) generate public input
     let deferred_values = compute_deferred_values(&proof).expect("deferred values");
     let checks_ok = run_checks(&proof, vk.index);
 
@@ -168,7 +150,8 @@ fn test_verify_with() {
         .to_public_input(npublic_input)
         .expect("to_public_input");
 
-    // 4) check proof
+    eprintln!("public_inputs: {public_inputs:?}");
+
     let prover_proof = make_padded_proof_from_p2p(&proof).expect("make_padded_proof");
 
     match verify_with(vk.index, &prover_proof, &public_inputs) {
