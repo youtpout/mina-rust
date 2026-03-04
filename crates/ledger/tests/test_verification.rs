@@ -11,20 +11,25 @@ use mina_p2p_messages::v2::{
     PicklesProofProofsVerifiedMaxStableV2,
 };
 
+use mina_tree::scan_state::transaction_logic::zkapp_command;
 use mina_tree::{
-    VerificationKey, account, proofs::{
+    account,
+    proofs::{
         prover::make_padded_proof_from_p2p,
         to_field_elements::ToFieldElements,
         verification::{
-            VK, compute_deferred_values, get_message_for_next_step_proof, get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with
+            compute_deferred_values, get_message_for_next_step_proof,
+            get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with, VK,
         },
         verifiers::make_zkapp_verifier_index,
     },
-    scan_state::transaction_logic::{self, WithStatus}, verifier::common::CheckResult,
+    scan_state::transaction_logic::{self, verifiable, TransactionStatus, WithStatus},
+    verifier::common::{self, CheckResult},
+    VerificationKey,
 };
 use rsexp::{OfSexp, Sexp};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::{fs, str::FromStr};
 
 #[derive(Clone, Copy, Debug)]
@@ -98,6 +103,37 @@ pub fn load_app_state8_from_txn_file(raw: &str) -> anyhow::Result<AppState8> {
     Ok(AppState8(out))
 }
 
+// Convert a camelCase string to snake_case.
+fn camel_to_snake(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i != 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+// Recursively convert all object keys from camelCase to snake_case.
+fn keys_camel_to_snake(v: Value) -> Value {
+    match v {
+        Value::Object(obj) => {
+            let mut out = Map::with_capacity(obj.len());
+            for (k, vv) in obj {
+                out.insert(camel_to_snake(&k), keys_camel_to_snake(vv));
+            }
+            Value::Object(out)
+        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(keys_camel_to_snake).collect()),
+        other => other,
+    }
+}
+
 #[test]
 fn test_verify_with() {
     let proof_b64 = include_str!("proof.txt").to_string();
@@ -120,10 +156,27 @@ fn test_verify_with() {
         data: (),
     };
 
-    let cmd: WithStatus<transaction_logic::verifiable::UserCommand> =
-        serde_json::from_str(&txn_json).expect("deserialize verifiable user command");
+    // Parse as generic JSON first.
+    let v: serde_json::Value = serde_json::from_str(&txn_json).expect("parse txn json");
+
+    // Convert all keys to snake_case to match Rust struct field names.
+    let v_snake = keys_camel_to_snake(v);
+
+    // Deserialize into the verifiable ZkAppCommand type.
+    let zkapp_cmd: zkapp_command::verifiable::ZkAppCommand =
+        serde_json::from_value(v_snake).expect("deserialize verifiable zkapp command");
+
+    // Wrap it into the verifiable UserCommand enum variant.
+    let user_cmd = verifiable::UserCommand::ZkAppCommand(Box::new(zkapp_cmd));
+
+    // Attach a status (your JSON does not include `data`/`status`, so we add them here).
+    let cmd = WithStatus {
+        data: user_cmd,
+        status: TransactionStatus::Applied,
+    };
 
     let checked = mina_tree::verifier::common::check(cmd);
+    eprintln!("checked: {checked:?}");
 
     let (vk_from_tx, zkapp_stmt_from_tx, proof_from_tx) = match checked {
         CheckResult::ValidAssuming((_valid_cmd, mut xs)) => {
