@@ -13,10 +13,14 @@ use mina_p2p_messages::v2::{
 
 use mina_tree::{
     VerificationKey, account, proofs::{
-        prover::make_padded_proof_from_p2p, to_field_elements::ToFieldElements, verification::{
+        prover::make_padded_proof_from_p2p,
+        to_field_elements::ToFieldElements,
+        verification::{
             VK, compute_deferred_values, get_message_for_next_step_proof, get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with
-        }, verifiers::make_zkapp_verifier_index
-    }, scan_state::transaction_logic::zkapp_statement::{TransactionCommitment, ZkappStatement}
+        },
+        verifiers::make_zkapp_verifier_index,
+    },
+    scan_state::transaction_logic::{self, WithStatus}, verifier::common::CheckResult,
 };
 use rsexp::{OfSexp, Sexp};
 use serde::Deserialize;
@@ -26,14 +30,12 @@ use std::{fs, str::FromStr};
 #[derive(Clone, Copy, Debug)]
 pub struct AppState8(pub [Fp; 8]);
 
-
 impl ToFieldElements<Fp> for AppState8 {
     fn to_field_elements(&self, out: &mut Vec<Fp>) {
         // Push the 8 field elements in order.
         out.extend_from_slice(&self.0);
     }
 }
-
 
 pub fn proof_from_b64_sexp_max(
     proof_sexp_b64: &str,
@@ -49,7 +51,6 @@ pub fn proof_from_b64_sexp_max(
         .map_err(|e| format!("S-exp -> proof(max) decode failure: {e:?}"))
 }
 
-
 fn parse_tx_json_maybe_string(s: &str) -> anyhow::Result<Value> {
     // The file can be either a JSON object, or a JSON string containing an escaped JSON object.
     let v: Value = serde_json::from_str(s)?;
@@ -59,7 +60,6 @@ fn parse_tx_json_maybe_string(s: &str) -> anyhow::Result<Value> {
         Ok(v)
     }
 }
-
 
 fn fp_from_decimal_str(s: &str) -> Result<Fp> {
     // Values are encoded as decimal strings in your tx JSON.
@@ -98,7 +98,6 @@ pub fn load_app_state8_from_txn_file(raw: &str) -> anyhow::Result<AppState8> {
     Ok(AppState8(out))
 }
 
-
 #[test]
 fn test_verify_with() {
     let proof_b64 = include_str!("proof.txt").to_string();
@@ -121,8 +120,18 @@ fn test_verify_with() {
         data: (),
     };
 
-    let app_state = load_app_state8_from_txn_file(&txn_json)
-        .expect("failed to load and parse appState from txn.json");
+    let cmd: WithStatus<transaction_logic::verifiable::UserCommand> =
+        serde_json::from_str(&txn_json).expect("deserialize verifiable user command");
+
+    let checked = mina_tree::verifier::common::check(cmd);
+
+    let (vk_from_tx, zkapp_stmt_from_tx, proof_from_tx) = match checked {
+        CheckResult::ValidAssuming((_valid_cmd, mut xs)) => {
+            // Pick the first proved account update; adjust if you have multiple proofs.
+            xs.pop().expect("no (vk, statement, proof) produced")
+        }
+        other => panic!("expected ValidAssuming(..), got: {other:?}"),
+    };
 
     let deferred_values = compute_deferred_values(&proof).expect("deferred values");
     let checks_ok = run_checks(&proof, vk.index);
@@ -130,7 +139,7 @@ fn test_verify_with() {
     let msg_next_step = get_message_for_next_step_proof(
         &proof.statement.messages_for_next_step_proof,
         &vk.commitments,
-        &app_state,
+        &zkapp_stmt_from_tx,
     )
     .expect("message_for_next_step");
 
