@@ -22,7 +22,9 @@ ledger = { workspace = true }
 mina-core = { path = "../core" }
 mina-curves = { workspace = true }
 mina-hasher = { workspace = true }
+mina-node = { workspace = true }
 mina-node-account = { workspace = true }
+mina-node-native = { workspace = true }
 mina-p2p = { workspace = true }
 mina-p2p-messages = { workspace = true }
 mina-signer = { workspace = true }

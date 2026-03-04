@@ -52,6 +52,7 @@ use mina_p2p_messages::{
 };
 
 use mina_node::account::AccountPublicKey;
+use o1_utils::field_helpers::FieldHelpersError;
 use serde::Deserialize;
 
 use super::{
@@ -308,43 +309,6 @@ impl TryFrom<MinaBaseControlStableV2> for GraphQLAuthorization {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ConversionError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Conversion(#[from] mina_p2p_messages::v2::conv::Error),
-    #[error("Wrong variant")]
-    WrongVariant,
-    #[error("SerdeJson: {0}")]
-    SerdeJson(#[from] serde_json::Error),
-    #[error("Base58Check: {0}")]
-    Base58Check(#[from] mina_p2p_messages::b58::FromBase58CheckError),
-    #[error("Base58 error: {0}")]
-    Base58(#[from] bs58::decode::Error),
-    #[error(transparent)]
-    InvalidDecimalNumber(#[from] mina_p2p_messages::bigint::InvalidDecimalNumber),
-    #[error("Invalid bigint")]
-    InvalidBigInt,
-    #[error("Invalid hex")]
-    InvalidHex,
-    #[error(transparent)]
-    ParseInt(#[from] std::num::ParseIntError),
-    #[error(transparent)]
-    EnumParse(#[from] strum::ParseError),
-    #[error(transparent)]
-    TryFromInt(#[from] std::num::TryFromIntError),
-    #[error("Missing field: {0}")]
-    MissingField(String),
-    #[error("Invalid length")]
-    InvalidLength,
-    #[error("Custom: {0}")]
-    Custom(String),
-    #[error(transparent)]
-    FieldHelpers(#[from] FieldHelpersError),
-    #[error("Failed to convert integer to i32")]
-    Integer,
-}
 
 impl TryFrom<InputGraphQLAuthorization> for MinaBaseControlStableV2 {
     type Error = ConversionError;

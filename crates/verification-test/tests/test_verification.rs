@@ -5,7 +5,9 @@ use anyhow::{Context, Result};
 use ark_ff::{fp, One, Zero};
 use base64::{engine::general_purpose, Engine};
 use ledger::verifier::common::check;
+use mina_core::transaction::Transaction;
 use mina_curves::pasta::{Fp, Fq};
+use mina_node_native::graphql::zkapp::InputGraphQLZkappCommand;
 use mina_p2p_messages::v2::{
     MinaBaseVerificationKeyWireStableV1, PicklesBaseProofsVerifiedStableV1,
     PicklesProofProofsVerified2ReprStableV2, PicklesProofProofsVerified2ReprStableV2StatementFp,
@@ -104,35 +106,18 @@ pub fn load_app_state8_from_txn_file(raw: &str) -> anyhow::Result<AppState8> {
     Ok(AppState8(out))
 }
 
-// Convert a camelCase string to snake_case.
-fn camel_to_snake(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 8);
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_ascii_uppercase() {
-            if i != 0 {
-                out.push('_');
-            }
-            out.push(ch.to_ascii_lowercase());
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
+fn user_command_from_json(
+    txn_json: &str,
+) -> Result<mina_p2p_messages::v2::MinaBaseUserCommandStableV2> {
+    // Parse JSON (camelCase) into your GraphQL input struct.
+    let input: InputGraphQLZkappCommand =
+        serde_json::from_str(txn_json).expect("deserialize InputGraphQLZkappCommand");
 
-// Recursively convert all object keys from camelCase to snake_case.
-fn keys_camel_to_snake(v: Value) -> Value {
-    match v {
-        Value::Object(obj) => {
-            let mut out = Map::with_capacity(obj.len());
-            for (k, vv) in obj {
-                out.insert(camel_to_snake(&k), keys_camel_to_snake(vv));
-            }
-            Value::Object(out)
-        }
-        Value::Array(arr) => Value::Array(arr.into_iter().map(keys_camel_to_snake).collect()),
-        other => other,
-    }
+    // Convert into Mina wire user command.
+    let cmd: mina_p2p_messages::v2::MinaBaseUserCommandStableV2 = input
+        .try_into()
+        .expect("convert to MinaBaseUserCommandStableV2");
+    Ok(cmd)
 }
 
 #[test]
@@ -157,17 +142,21 @@ fn test_verify_with() {
         data: (),
     };
 
-    // Parse as generic JSON first.
-    let v: serde_json::Value = serde_json::from_str(&txn_json).expect("parse txn json");
+    // Deserialize JSON → wire user command
+    let cmd_wire: mina_p2p_messages::v2::MinaBaseUserCommandStableV2 =
+        user_command_from_json(&txn_json).expect("deserialize user command");
 
-    // Convert all keys to snake_case to match Rust struct field names.
-    let v_snake = keys_camel_to_snake(v);
+    // Extract zkapp command from the wire enum
+    let zkapp_wire = match cmd_wire {
+        mina_p2p_messages::v2::MinaBaseUserCommandStableV2::ZkappCommand(cmd) => cmd,
+        _ => panic!("expected zkapp command"),
+    };
 
-    // Deserialize into the verifiable ZkAppCommand type.
+    // Convert wire zkapp command → verifiable zkapp command
     let zkapp_cmd: zkapp_command::verifiable::ZkAppCommand =
-        serde_json::from_value(v_snake).expect("deserialize verifiable zkapp command");
+        zkapp_wire.try_into().expect("wire -> verifiable");
 
-    // Wrap it into the verifiable UserCommand enum variant.
+    // Wrap it in the verifiable user command
     let user_cmd = verifiable::UserCommand::ZkAppCommand(Box::new(zkapp_cmd));
 
     // Attach a status (your JSON does not include `data`/`status`, so we add them here).
