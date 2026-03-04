@@ -4,6 +4,7 @@
 use anyhow::{Context, Result};
 use ark_ff::{fp, One, Zero};
 use base64::{engine::general_purpose, Engine};
+use ledger::verifier::common::check;
 use mina_curves::pasta::{Fp, Fq};
 use mina_p2p_messages::v2::{
     MinaBaseVerificationKeyWireStableV1, PicklesBaseProofsVerifiedStableV1,
@@ -11,8 +12,8 @@ use mina_p2p_messages::v2::{
     PicklesProofProofsVerifiedMaxStableV2,
 };
 
-use mina_tree::scan_state::transaction_logic::zkapp_command;
-use mina_tree::{
+use ledger::scan_state::transaction_logic::zkapp_command;
+use ledger::{
     account,
     proofs::{
         prover::make_padded_proof_from_p2p,
@@ -175,7 +176,7 @@ fn test_verify_with() {
         status: TransactionStatus::Applied,
     };
 
-    let checked = mina_tree::verifier::common::check(cmd);
+    let checked = check(cmd);
     eprintln!("checked: {checked:?}");
 
     let (vk_from_tx, zkapp_stmt_from_tx, proof_from_tx) = match checked {
