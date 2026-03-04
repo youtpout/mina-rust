@@ -1,6 +1,7 @@
 use std::ops::Neg;
 
 use ark_ff::{BigInteger, PrimeField};
+use mina_p2p_messages::v2::MinaBaseZkappCommandTStableV1WireStableV1;
 use mina_signer::CompressedPubKey;
 
 use super::{

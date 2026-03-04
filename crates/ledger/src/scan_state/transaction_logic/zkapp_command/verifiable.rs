@@ -2,6 +2,8 @@ use mina_curves::pasta::Fp;
 use mina_p2p_messages::v2::MinaBaseZkappCommandVerifiableStableV1;
 use std::collections::HashMap;
 
+use crate::scan_state::transaction_logic::zkapp_command; 
+
 use super::{
     AccountId, AccountUpdate, AuthorizationKind, CallForest, Control, FeePayer, Memo, SetOrKeep,
     VerificationKeyWire,
@@ -17,17 +19,12 @@ pub struct ZkAppCommand {
     pub memo: Memo,
 }
 
-fn ok_if_vk_hash_expected(
-    got: VerificationKeyWire,
-    expected: Fp,
-) -> Result<VerificationKeyWire, String> {
+fn ok_if_vk_hash_expected(got: VerificationKeyWire, expected: Fp) -> Result<VerificationKeyWire, String> {
     if got.hash() == expected {
         return Ok(got.clone());
     }
     Err(format!(
-        "Expected vk hash doesn't match hash in vk we received\
-                 expected: {:?}\
-                 got: {:?}",
+        "Expected vk hash doesn't match hash in vk we received expected={:?} got={:?}",
         expected, got
     ))
 }
@@ -53,8 +50,7 @@ where
     match vk {
         Some(vk) => ok_if_vk_hash_expected(vk, expected_vk_hash),
         None => Err(format!(
-            "No verification key found for proved account update\
-                             account_id: {:?}",
+            "No verification key found for proved account update account_id={:?}",
             account_id
         )),
     }
@@ -69,21 +65,13 @@ fn check_authorization(p: &AccountUpdate) -> Result<(), String> {
         | (C::Proof(_), AK::Proof(_))
         | (C::Signature(_), AK::Signature) => Ok(()),
         _ => Err(format!(
-            "Authorization kind does not match the authorization\
-                         expected={:#?}\
-                         got={:#?}",
+            "Authorization kind does not match the authorization expected={:#?} got={:#?}",
             p.body.authorization_kind, p.authorization
         )),
     }
 }
 
-/// Ensures that there's a verification_key available for all account_updates
-/// and creates a valid command associating the correct keys with each
-/// account_id.
-///
-/// If an account_update replaces the verification_key (or deletes it),
-/// subsequent account_updates use the replaced key instead of looking in the
-/// ledger for the key (ie set by a previous transaction).
+/// Ensures that there's a verification_key available for all account_updates and associates keys.
 pub fn create(
     zkapp: &super::ZkAppCommand,
     is_failed: bool,
@@ -96,8 +84,6 @@ pub fn create(
     } = zkapp;
 
     let mut tbl = HashMap::with_capacity(128);
-    // Keep track of the verification keys that have been set so far
-    // during this transaction.
     let mut vks_overridden: HashMap<AccountId, Option<VerificationKeyWire>> =
         HashMap::with_capacity(128);
 
@@ -108,40 +94,25 @@ pub fn create(
 
         let result = match (&p.body.authorization_kind, is_failed) {
             (AuthorizationKind::Proof(vk_hash), false) => {
-                let prioritized_vk = {
-                    // only lookup _past_ vk setting, ie exclude the new one we
-                    // potentially set in this account_update (use the non-'
-                    // vks_overrided) .
-
-                    match vks_overridden.get(&account_id) {
-                        Some(Some(vk)) => ok_if_vk_hash_expected(vk.clone(), *vk_hash)?,
-                        Some(None) => {
-                            // we explicitly have erased the key
-                            return Err(format!(
-                                "No verification key found for proved account \
-                                                update: the verification key was removed by a \
-                                                previous account update\
-                                                account_id={:?}",
-                                account_id
-                            ));
-                        }
-                        None => {
-                            // we haven't set anything; lookup the vk in the fallback
-                            find_vk(*vk_hash, &account_id)?
-                        }
+                let prioritized_vk = match vks_overridden.get(&account_id) {
+                    Some(Some(vk)) => ok_if_vk_hash_expected(vk.clone(), *vk_hash)?,
+                    Some(None) => {
+                        return Err(format!(
+                            "No verification key found for proved account update: key removed by a previous account update account_id={:?}",
+                            account_id
+                        ));
                     }
+                    None => find_vk(*vk_hash, &account_id)?,
                 };
 
                 tbl.insert(account_id, prioritized_vk.hash());
 
                 Ok((p.clone(), Some(prioritized_vk)))
             }
-
             _ => Ok((p.clone(), None)),
         };
 
-        // NOTE: we only update the overriden map AFTER verifying the update to make sure
-        // that the verification for the VK update itself is done against the previous VK.
+        // Update overridden map AFTER verification (VK update must be checked against previous VK).
         if let SetOrKeep::Set(vk_next) = &p.body.update.verification_key {
             vks_overridden.insert(p.account_id().clone(), Some(vk_next.clone()));
         }
@@ -154,4 +125,20 @@ pub fn create(
         account_updates,
         memo: memo.clone(),
     })
+}
+
+
+impl From<&zkapp_command::ZkAppCommand> for zkapp_command::verifiable::ZkAppCommand {
+    fn from(cmd: &zkapp_command::ZkAppCommand) -> Self {
+        // Attach no VKs by default; the "real" association is done by verifiable::create(...)
+        let account_updates = cmd
+            .account_updates
+            .map_to(|p| (p.clone(), None));
+
+        Self {
+            fee_payer: cmd.fee_payer.clone(),
+            account_updates,
+            memo: cmd.memo.clone(),
+        }
+    }
 }
