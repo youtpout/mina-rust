@@ -23,7 +23,8 @@ use mina_p2p_messages::v2::{
 };
 use rsexp::OfSexp;
 
-use verification_test::zkapp_wire_from_json_str;
+use serde_json::Value;
+use verification_test::{normalize_json_for_wire, zkapp_wire_from_json_str};
 
 fn proof_from_b64_sexp_max(
     proof_sexp_b64: &str,
@@ -65,7 +66,6 @@ fn test_verify_with() {
         data: (),
     };
 
-    // txn_json -> wire zkapp
     let zkapp_wire: MinaBaseZkappCommandTStableV1WireStableV1 =
         zkapp_wire_from_json_str(txn_json).expect("json -> wire");
 
