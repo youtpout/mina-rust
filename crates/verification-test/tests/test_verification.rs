@@ -1,5 +1,5 @@
 // Run this test with:
-// cargo test --package mina-tree --test test_zkapp
+// cargo test --test test_verification -- --nocapture
 
 use anyhow::{Context, Result};
 use ark_ff::{fp, One, Zero};
