@@ -1,23 +1,26 @@
 // Run this test with:
 // cargo test --test test_verification -- --nocapture
 
-use anyhow::Result;
 use ledger::{
-    VerificationKey, VerificationKeyWire, generators::zkapp_command, proofs::{
+    proofs::{
         prover::make_padded_proof_from_p2p,
         verification::{
-            VK, compute_deferred_values, get_message_for_next_step_proof, get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with
+            compute_deferred_values, get_message_for_next_step_proof,
+            get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with, VK,
         },
         verifiers::make_zkapp_verifier_index,
-    }, scan_state::transaction_logic::{
-        TransactionStatus, WithStatus, verifiable, zkapp_command::ZkAppCommand
-    }, verifier::common::{CheckResult, check}
+    },
+    scan_state::transaction_logic::{
+        verifiable, zkapp_command::ZkAppCommand, TransactionStatus, WithStatus,
+    },
+    verifier::common::{check, CheckResult},
+    VerificationKey, VerificationKeyWire,
 };
 use mina_p2p_messages::v2::MinaBaseVerificationKeyWireStableV1;
 
 // Import helpers from lib.rs
-use verification_test::{parse_graphql_zkapp, parse_graphql_zkapp_file};
 use ledger::scan_state::transaction_logic::zkapp_command::verifiable::create;
+use verification_test::parse_graphql_zkapp_file;
 
 #[test]
 fn test_parse_zkapp_command() {
@@ -106,8 +109,6 @@ fn test_verify_with() {
     let public_inputs = prepared_statement
         .to_public_input(vk.index.public)
         .expect("prepared_statement -> public inputs");
-
-    eprintln!("public_inputs: {public_inputs:?}");
 
     let prover_proof = make_padded_proof_from_p2p(proof).expect("make_padded_proof");
 
