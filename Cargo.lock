@@ -9541,6 +9541,8 @@ dependencies = [
  "graphannis-malloc_size_of",
  "graphannis-malloc_size_of_derive",
  "hex",
+ "juniper",
+ "juniper_axum",
  "lazy_static",
  "linkme",
  "mina-core",

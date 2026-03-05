@@ -17,6 +17,8 @@ derive_more = { workspace = true }
 graphannis-malloc_size_of = { workspace = true }
 graphannis-malloc_size_of_derive = { workspace = true }
 hex = { workspace = true }
+juniper = { workspace = true }
+juniper_axum = { workspace = true }
 lazy_static = { workspace = true }
 ledger = { workspace = true }
 mina-core = { path = "../core" }
