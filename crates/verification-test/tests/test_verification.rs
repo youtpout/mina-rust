@@ -3,25 +3,21 @@
 
 use anyhow::Result;
 use ledger::{
-    generators::zkapp_command,
-    proofs::{
+    VerificationKey, VerificationKeyWire, generators::zkapp_command, proofs::{
         prover::make_padded_proof_from_p2p,
         verification::{
-            compute_deferred_values, get_message_for_next_step_proof,
-            get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with, VK,
+            VK, compute_deferred_values, get_message_for_next_step_proof, get_message_for_next_wrap_proof, get_prepared_statement, run_checks, verify_with
         },
         verifiers::make_zkapp_verifier_index,
-    },
-    scan_state::transaction_logic::{
-        verifiable, zkapp_command::ZkAppCommand, TransactionStatus, WithStatus,
-    },
-    verifier::common::{check, CheckResult},
-    VerificationKey,
+    }, scan_state::transaction_logic::{
+        TransactionStatus, WithStatus, verifiable, zkapp_command::ZkAppCommand
+    }, verifier::common::{CheckResult, check}
 };
 use mina_p2p_messages::v2::MinaBaseVerificationKeyWireStableV1;
 
 // Import helpers from lib.rs
 use verification_test::{parse_graphql_zkapp, parse_graphql_zkapp_file};
+use ledger::scan_state::transaction_logic::zkapp_command::verifiable::create;
 
 #[test]
 fn test_parse_zkapp_command() {
@@ -64,11 +60,21 @@ fn test_verify_with() {
 
     let zkapp_runtime: ZkAppCommand = (&parsed.zkapp_command).try_into().expect("wire -> runtime");
 
+    // Build the verifiable command by providing a VK lookup closure
+    let zkapp_verifiable = create(
+        &zkapp_runtime,
+        false, // is_failed = false
+        |_expected_vk_hash, _account_id| {
+            // Return our VK for any proved account update
+            Ok(VerificationKeyWire::new(verification_key.clone()))
+        },
+    )
+    .expect("verifiable::create");
+
     let cmd = WithStatus {
-        data: verifiable::UserCommand::ZkAppCommand(Box::new((&zkapp_runtime).into())),
+        data: verifiable::UserCommand::ZkAppCommand(Box::new(zkapp_verifiable)),
         status: TransactionStatus::Applied,
     };
-    
 
     let (_vk_from_tx, zkapp_stmt_from_tx, _proof_from_tx) = match check(cmd) {
         CheckResult::ValidAssuming((_valid_cmd, mut xs)) => xs.pop().expect("no vk/stmt/proof"),
