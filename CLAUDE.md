@@ -8,6 +8,96 @@ Mina is a Rust implementation of the Mina Protocol, a lightweight blockchain
 using zero-knowledge proofs. It follows a Redux-style state machine architecture
 for predictable, debuggable behavior.
 
+## o1js Rust backend integration (`pickle-rs`)
+
+The `pickle-rs` branch is the integration base for replacing o1js' Mina OCaml
+and jsoo runtime with this Rust implementation. This repository is the intended
+high-level backend because it already contains the Ledger, Mina transaction
+logic, protocol types, signer, and SNARK verification orchestration. Pickles and
+Snarky themselves remain in the proof-systems repository.
+
+All active proof-systems dependencies must come from:
+
+```text
+https://github.com/youtpout/proof-systems
+branch: pickle-rs
+```
+
+`Cargo.lock` pins the tested commit. Do not mix crates from the official
+`o1-labs/proof-systems` tag with crates from the fork: Kimchi, Pasta curves,
+Poseidon, signer, hasher, polynomial commitment, and o1-utils must resolve from
+one revision to avoid duplicate types and transcript incompatibilities.
+
+Initial compatibility work for proof-systems 0.7 includes:
+
+- the public `SRS::lagrange_bases()` / `set_once()` cache API;
+- `std::sync::OnceLock` in Kimchi verifier indexes;
+- `ScalarChallenge::inner()` instead of tuple-field access;
+- explicit `NonceMode::Legacy` / `NonceMode::Chunked` signer calls.
+
+The first validated milestone is that both `mina-tree` (Ledger) and
+`mina-snark` compile against the fork. The migration must proceed without
+replacing o1js' `src/mina` directory in place until a stable Rust adapter exists.
+
+Validation on this branch:
+
+- `cargo check -p mina-cli -p mina-node -p mina-snark -p mina-tree` passes;
+- the Ledger unit suite has 149 passing tests and 6 pre-existing circuit tests
+  ignored;
+- `proofs::transaction::tests::test_convert_requests` requires the external
+  devnet circuit `tests` directory and fails with `ENOENT` when those fixtures
+  are not installed; this is not a proof-systems compatibility failure.
+
+The production dependency direction is deliberately one-way:
+
+```text
+o1js -> mina-rust o1js adapter -> proof-systems (pickle-rs)
+```
+
+o1js must not also depend directly on proof-systems in production. The adapter
+owns the Pickles `compile`, `prove`, and `verify` entry points and exposes stable,
+versioned wire types over NAPI/WASM. Direct o1js-to-proof-systems dependencies
+are allowed only in temporary parity tests and development tooling. This avoids
+resolving two Pickles/Kimchi revisions and keeps Mina Ledger, transaction, and
+proof serialization semantics behind one Rust boundary.
+
+Next integration milestones:
+
+1. **Core adapter crate.** Add a transport-independent `o1js-backend` crate to
+   this workspace. It owns session/handle lifetimes and depends on `mina-tree`,
+   Mina protocol types, and the `pickles`/`snarky` crates from the same locked
+   proof-systems revision. No JavaScript ABI types belong in this crate.
+2. **Stable backend contract.** Expose versioned request/response types for
+   Ledger and account operations, transaction construction/signing, circuit
+   registration, `compile`, `prove`, `verify`, key serialization, and proof
+   serialization. Define explicit backend and wire-format version queries so
+   o1js can reject incompatible binaries instead of silently mis-decoding data.
+3. **Native transport.** Add a thin NAPI crate over `o1js-backend`. Move the
+   existing experimental Rust Pickles calls in o1js behind this façade and test
+   cancellation, concurrent proving, cache ownership, and structured errors.
+4. **Browser transport.** Add a thin `wasm-bindgen` crate over the same core
+   contract. NAPI and WASM must consume identical serialized requests and
+   produce byte-identical keys/proofs for deterministic fixtures where the
+   protocol permits it.
+5. **o1js backend switch.** Introduce one internal backend interface in o1js and
+   route `ZkProgram`, `SmartContract`, Ledger, transaction, signer, and encoding
+   operations through it. Rust becomes opt-in first, then the default; jsoo
+   remains available only as the comparison backend during migration.
+6. **Parity and release gate.** Run the existing o1js suites against both
+   backends and compare gates, verification keys, proofs, Mina wire/binprot
+   values, errors, and native/browser behavior. Add cold/warm compile and prove
+   benchmarks and memory checks. Publish only when Rust verifies jsoo artifacts
+   and jsoo verifies Rust artifacts for all supported circuit shapes.
+7. **Remove jsoo and Mina OCaml.** Delete the jsoo bindings, OCaml build and
+   runtime assets, dual-backend flag, and direct production proof-systems test
+   hooks only after the parity matrix is green. o1js then depends on mina-rust's
+   NAPI/WASM packages as its sole Mina/Pickles backend.
+
+The first implementation target is milestones 1 and 2 together, with a native
+Rust integration test that creates a Ledger, compiles a minimal recursive
+program, proves it, verifies it, and round-trips every returned artifact before
+any NAPI or WASM code is introduced.
+
 _For detailed architecture documentation, see
 [`docs/handover/`](docs/handover/)_
 

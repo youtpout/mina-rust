@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use ark_ec::{short_weierstrass::Affine, AffineRepr, CurveConfig};
@@ -21,10 +21,7 @@ use kimchi::{
 };
 use mina_curves::pasta::Fq;
 use mina_p2p_messages::bigint::{BigInt, InvalidBigInt};
-use once_cell::sync::OnceCell;
-use poly_commitment::{
-    commitment::CommitmentCurve, hash_map_cache::HashMapCache, ipa::SRS, PolyComm,
-};
+use poly_commitment::{commitment::CommitmentCurve, ipa::SRS, PolyComm};
 use serde::{Deserialize, Serialize};
 
 use super::VerifierIndex;
@@ -188,18 +185,10 @@ where
             g: into(&srs.g),
             h: (&srs.h).into(),
             lagrange_bases: {
-                let cloned = srs.lagrange_bases.clone();
-                let map = HashMap::from(cloned);
+                let map: HashMap<usize, Arc<Vec<PolyComm<G>>>> =
+                    srs.lagrange_bases().clone().into();
                 map.into_iter()
-                    .map(|(key, value)| {
-                        (
-                            key,
-                            value
-                                .into_iter()
-                                .map(|pc| PolyCommCached::from(&pc))
-                                .collect(),
-                        )
-                    })
+                    .map(|(key, value)| (key, value.iter().map(PolyCommCached::from).collect()))
                     .collect()
             },
         }
@@ -211,19 +200,13 @@ where
     G: CommitmentCurve + From<&'a GroupAffineCached>,
 {
     fn from(srs: &'a SRSCached) -> Self {
-        Self {
-            g: into(&srs.g),
-            h: (&srs.h).into(),
-            lagrange_bases: {
-                let lagrange_bases = srs
-                    .lagrange_bases
-                    .iter()
-                    .map(|(key, value)| (*key, value.iter().map(PolyComm::from).collect()))
-                    .collect();
-
-                HashMapCache::new_from_hashmap(lagrange_bases)
-            },
+        let restored = Self::new(into(&srs.g), (&srs.h).into());
+        for (key, value) in &srs.lagrange_bases {
+            restored
+                .lagrange_bases()
+                .set_once(*key, value.iter().map(PolyComm::from).collect());
         }
+        restored
     }
 }
 
@@ -460,11 +443,11 @@ impl From<&VerifierIndexCached> for VerifierIndex<Fq> {
             foreign_field_add_comm: foreign_field_add_comm.clone(),
             xor_comm: xor_comm.clone(),
             shift: shift.each_ref().map(|s: &BigInt| s.to_field().unwrap()), // We trust cached data
-            permutation_vanishing_polynomial_m: OnceCell::with_value(
-                permutation_vanishing_polynomial_m.into(),
-            ),
-            w: OnceCell::with_value(w.to_field().unwrap()), // We trust cached data
-            endo: endo.to_field().unwrap(),                 // We trust cached data
+            permutation_vanishing_polynomial_m: OnceLock::from(DensePolynomial::<Fq>::from(
+                permutation_vanishing_polynomial_m,
+            )),
+            w: OnceLock::<Fq>::from(w.to_field::<Fq>().unwrap()), // We trust cached data
+            endo: endo.to_field().unwrap(),                       // We trust cached data
             lookup_index: lookup_index.clone(),
             linearization: conv_linearization(linearization, |v: &BigInt| v.to_field().unwrap()),
             powers_of_alpha: {

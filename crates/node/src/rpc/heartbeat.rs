@@ -192,13 +192,13 @@ impl NodeHeartbeat {
         let submitter = secret_key.public_key();
 
         let signature = {
-            use mina_signer::{Keypair, Signer};
+            use mina_signer::{Keypair, NonceMode, Signer};
             let mut signer = mina_signer::create_legacy::<NodeHeartbeatPayloadDigest>(
                 mina_signer::NetworkId::TESTNET,
             );
             let kp = Keypair::from(secret_key.clone());
 
-            let signature = signer.sign(&kp, &digest, false);
+            let signature = signer.sign(&kp, &digest, NonceMode::Legacy);
             signature.into()
         };
 

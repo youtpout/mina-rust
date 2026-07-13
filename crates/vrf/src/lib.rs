@@ -120,7 +120,7 @@ fn calculate_vrf(
     let vrf_message_hash_curve_point = vrf_message.to_group()?;
 
     let scaled_message_hash = vrf_message_hash_curve_point
-        .mul(producer_key.secret.clone().into_scalar())
+        .mul(producer_key.secret_key().clone().into_scalar())
         .into_affine();
 
     Ok(VrfOutput::new(vrf_message, scaled_message_hash))

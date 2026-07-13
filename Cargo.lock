@@ -3410,12 +3410,11 @@ dependencies = [
 
 [[package]]
 name = "groupmap"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 dependencies = [
  "ark-ec",
  "ark-ff",
- "rand",
 ]
 
 [[package]]
@@ -3500,6 +3499,7 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash",
+ "serde",
 ]
 
 [[package]]
@@ -4098,8 +4098,8 @@ dependencies = [
 
 [[package]]
 name = "internal-tracing"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 
 [[package]]
 name = "io-lifetimes"
@@ -4324,8 +4324,8 @@ dependencies = [
 
 [[package]]
 name = "kimchi"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -4342,7 +4342,6 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "o1-utils",
- "once_cell",
  "poly-commitment",
  "rand",
  "rand_core",
@@ -4350,10 +4349,10 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_with",
- "strum",
+ "sha2 0.10.8",
+ "strum 0.27.2",
  "strum_macros",
  "thiserror 2.0.11",
- "turshi",
 ]
 
 [[package]]
@@ -5131,8 +5130,8 @@ dependencies = [
 
 [[package]]
 name = "mina-curves"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -5168,8 +5167,8 @@ dependencies = [
 
 [[package]]
 name = "mina-hasher"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 dependencies = [
  "ark-ff",
  "bitvec",
@@ -5228,7 +5227,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "static_assertions",
- "strum",
+ "strum 0.26.2",
  "strum_macros",
  "thiserror 1.0.60",
  "time",
@@ -5309,7 +5308,7 @@ dependencies = [
  "redux",
  "serde",
  "serde_json",
- "strum",
+ "strum 0.26.2",
  "strum_macros",
 ]
 
@@ -5346,7 +5345,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha3",
- "strum",
+ "strum 0.26.2",
  "strum_macros",
  "thiserror 1.0.60",
  "tokio",
@@ -5395,7 +5394,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "strum",
+ "strum 0.26.2",
  "strum_macros",
  "temp-dir",
  "thiserror 1.0.60",
@@ -5489,7 +5488,7 @@ dependencies = [
  "serde_with",
  "sha2 0.10.8",
  "smallvec",
- "strum",
+ "strum 0.26.2",
  "strum_macros",
  "thiserror 1.0.60",
  "tokio",
@@ -5538,7 +5537,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "sha2 0.10.8",
- "strum",
+ "strum 0.26.2",
  "strum_macros",
  "thiserror 1.0.60",
  "time",
@@ -5551,8 +5550,8 @@ dependencies = [
 
 [[package]]
 name = "mina-poseidon"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -5560,7 +5559,6 @@ dependencies = [
  "ark-serialize",
  "mina-curves",
  "o1-utils",
- "once_cell",
  "rand",
  "rayon",
  "serde",
@@ -5569,8 +5567,8 @@ dependencies = [
 
 [[package]]
 name = "mina-signer"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -5682,7 +5680,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sha2 0.10.8",
- "strum",
+ "strum 0.26.2",
  "strum_macros",
  "thiserror 1.0.60",
  "tuple-map",
@@ -6230,10 +6228,9 @@ dependencies = [
 
 [[package]]
 name = "o1-utils"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 dependencies = [
- "ark-ec",
  "ark-ff",
  "ark-poly",
  "ark-serialize",
@@ -6242,7 +6239,6 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "rand",
- "rand_core",
  "rayon",
  "rmp-serde",
  "rustversion",
@@ -6250,6 +6246,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sha2 0.10.8",
+ "spin 0.10.0",
  "thiserror 2.0.11",
 ]
 
@@ -6817,8 +6814,8 @@ dependencies = [
 
 [[package]]
 name = "poly-commitment"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
+version = "0.7.0"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#95a85d68d467b676d77a7cc4fb71b207d3addd2c"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -6826,13 +6823,13 @@ dependencies = [
  "ark-serialize",
  "blake2",
  "groupmap",
+ "hashbrown 0.15.2",
  "hex",
  "itertools 0.12.1",
  "mina-curves",
  "mina-poseidon",
  "num-bigint",
  "o1-utils",
- "once_cell",
  "rand",
  "rand_core",
  "rayon",
@@ -6840,6 +6837,7 @@ dependencies = [
  "serde",
  "serde_with",
  "thiserror 2.0.11",
+ "zeroize",
 ]
 
 [[package]]
@@ -8395,6 +8393,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "spin"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+
+[[package]]
 name = "spki"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8473,6 +8477,12 @@ name = "strum"
 version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d8cec3501a5194c432b2b7976db6b7d10ec95c253208b45f83f7136aa985e29"
+
+[[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
 
 [[package]]
 name = "strum_macros"
@@ -9231,16 +9241,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "webrtc-util",
-]
-
-[[package]]
-name = "turshi"
-version = "0.3.0"
-source = "git+https://github.com/o1-labs/proof-systems?tag=0.3.0#a73ca6ed580a346344ba80a88137b100237070dc"
-dependencies = [
- "ark-ff",
- "hex",
- "o1-utils",
 ]
 
 [[package]]

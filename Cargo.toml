@@ -139,7 +139,7 @@ js-sys = "0.3.64"
 jsonpath-rust = "0.5.0"
 juniper = "0.17"
 juniper_axum = "0.3"
-kimchi = { git = "https://github.com/o1-labs/proof-systems", tag = "0.3.0" }
+kimchi = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 lazy_static = "1.4.0"
 leb128 = "0.2.1"
 ledger = { path = "crates/ledger", package = "mina-tree" }
@@ -153,9 +153,9 @@ md5 = "0.7.0"
 mina-bootstrap-sandbox = { path = "tools/bootstrap-sandbox" }
 mina-cli = { path = "crates/cli" }
 mina-core = { path = "crates/core" }
-mina-curves = { git = "https://github.com/o1-labs/proof-systems", tag = "0.3.0" }
+mina-curves = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 mina-fuzzer = { path = "crates/fuzzer" }
-mina-hasher = { git = "https://github.com/o1-labs/proof-systems", tag = "0.3.0" }
+mina-hasher = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 mina-macros = { path = "crates/macros" }
 mina-node = { path = "crates/node" }
 mina-node-account = { path = "crates/node/account" }
@@ -165,8 +165,8 @@ mina-node-native = { path = "crates/node/native" }
 mina-node-testing = { path = "tools/testing" }
 mina-p2p = { path = "crates/p2p" }
 mina-p2p-messages = { path = "crates/p2p-messages" }
-mina-poseidon = { git = "https://github.com/o1-labs/proof-systems", tag = "0.3.0" }
-mina-signer = { git = "https://github.com/o1-labs/proof-systems", tag = "0.3.0" }
+mina-poseidon = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
+mina-signer = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 mina-snark = { path = "crates/snark" }
 mina-transport = { path = "tools/transport" }
 mina-vrf = { path = "crates/vrf" }
@@ -180,7 +180,7 @@ num-bigint = { git = "https://github.com/openmina/num-bigint", branch = "rebase-
 num-traits = "0.2"
 num_cpus = "1.0"
 num_enum = "0.5.7"
-o1-utils = { git = "https://github.com/o1-labs/proof-systems", tag = "0.3.0" }
+o1-utils = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 object = "0.37.1"
 once_cell = "1"
 p256 = { version = "0.13", features = ["default", "ecdh", "ecdsa"] }
@@ -188,7 +188,7 @@ p384 = "0.13"
 pcap = "2.4"
 percent-encoding = "2.3"
 pin-project-lite = "0.2.10"
-poly-commitment = { git = "https://github.com/o1-labs/proof-systems", tag = "0.3.0" }
+poly-commitment = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 poseidon = { path = "poseidon" }
 postcard = { version = "1.0.9", features = ["use-std"] }
 proc-macro2 = "1.0.103"
@@ -270,7 +270,7 @@ x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 zeroize = "1.8"
 zstd = "0.12"
 
-# UNCOMMENTED_IN_CI mina-curves = { git = "https://github.com/o1-labs/proof-systems", rev = "d1912bca54d2609296b9af9d09ad1ef78702e203", features = [ "32x9" ] }
+# UNCOMMENTED_IN_CI mina-curves = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs", features = [ "32x9" ] }
 # UNCOMMENTED_IN_CI ark-ff = { git = "https://github.com/openmina/algebra", branch = "rebase-fix-openmina-webnode", features = ["parallel", "asm", "std", "32x9" ] }
 
 [profile.fuzz]

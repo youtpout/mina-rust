@@ -11,7 +11,7 @@ use ledger::scan_state::{
 };
 use mina_node_account::{AccountPublicKey, AccountSecretKey};
 use mina_p2p_messages::v2::MinaBaseSignedCommandStableV2;
-use mina_signer::{CompressedPubKey, Keypair, Signer};
+use mina_signer::{CompressedPubKey, Keypair, NonceMode, Signer};
 
 use super::super::Network;
 
@@ -284,7 +284,7 @@ impl Send {
         let mut signer = mina_signer::create_legacy(network_id);
         let kp: Keypair = sender_key.clone().into();
         // Use packed=true for OCaml/TypeScript compatibility (required by Mina protocol)
-        let signature = signer.sign(&kp, &payload_to_sign, true);
+        let signature = signer.sign(&kp, &payload_to_sign, NonceMode::Chunked);
 
         Ok(SignedCommand {
             payload,

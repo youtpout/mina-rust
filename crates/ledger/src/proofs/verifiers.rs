@@ -1,7 +1,7 @@
 use std::{
     io::Read,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use anyhow::Context;
@@ -359,8 +359,8 @@ fn make_verifier_index(index: VerifierIndex<Fq>) -> VerifierIndex<Fq> {
 
     VerifierIndex::<Fq> {
         srs,
-        permutation_vanishing_polynomial_m: OnceCell::from(permutation_vanishing_polynomial_m),
-        w: OnceCell::from(w),
+        permutation_vanishing_polynomial_m: OnceLock::from(permutation_vanishing_polynomial_m),
+        w: OnceLock::from(w),
         endo,
         linearization,
         powers_of_alpha,
@@ -464,10 +464,10 @@ pub fn make_zkapp_verifier_index(vk: &VerificationKey) -> VerifierIndex<Fq> {
         xor_comm: None,
         rot_comm: None,
         shift: *shift.shifts(),
-        permutation_vanishing_polynomial_m: OnceCell::with_value(permutation_vanishing_polynomial(
+        permutation_vanishing_polynomial_m: OnceLock::from(permutation_vanishing_polynomial(
             domain, zk_rows,
         )),
-        w: { OnceCell::with_value(zk_w(domain, zk_rows)) },
+        w: OnceLock::from(zk_w(domain, zk_rows)),
         endo: endo_q,
         lookup_index: None,
         linearization,

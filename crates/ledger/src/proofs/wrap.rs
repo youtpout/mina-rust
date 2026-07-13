@@ -143,7 +143,7 @@ pub struct Oracles<F: FieldWitness> {
 
 impl<F: FieldWitness> Oracles<F> {
     pub fn alpha(&self) -> F {
-        self.o.alpha_chal.0
+        self.o.alpha_chal.inner()
     }
 
     pub fn beta(&self) -> F {
@@ -155,7 +155,7 @@ impl<F: FieldWitness> Oracles<F> {
     }
 
     pub fn zeta(&self) -> F {
-        self.o.zeta_chal.0
+        self.o.zeta_chal.inner()
     }
 
     pub fn joint_combiner(&self) -> Option<F> {
@@ -250,7 +250,7 @@ pub fn create_oracle_with_public_input<F: FieldWitness>(
         .proof
         .prechallenges(&mut sponge)
         .into_iter()
-        .map(|f| f.0)
+        .map(|f| f.inner())
         .collect();
 
     Oracles {
@@ -402,7 +402,7 @@ fn deferred_values(params: DeferredValuesParams) -> DeferredValuesAndHints {
             .map(|v| scalar_to_field(to_bytes(v)))
             .collect::<Vec<_>>();
 
-        let r = scalar_to_field(to_bytes(r.0));
+        let r = scalar_to_field(to_bytes(r.inner()));
         let zeta = scalar_to_field(plonk0.zeta_bytes);
         let challenge_poly = challenge_polynomial(&chals);
         let b = challenge_poly(zeta) + (r * challenge_poly(zetaw));
@@ -420,9 +420,9 @@ fn deferred_values(params: DeferredValuesParams) -> DeferredValuesAndHints {
             evals,
             combined_evals: &combined_evals,
             minimal: &tick_plonk_minimal,
-            r: scalar_to_field(to_bytes(r.0)),
+            r: scalar_to_field(to_bytes(r.inner())),
             old_bulletproof_challenges: &prev_challenges,
-            xi: scalar_to_field(to_bytes(xi.0)),
+            xi: scalar_to_field(to_bytes(xi.inner())),
             zetaw,
             public: &x_hat,
             ft_eval1: proof_with_public.proof.ft_eval1,
@@ -445,7 +445,7 @@ fn deferred_values(params: DeferredValuesParams) -> DeferredValuesAndHints {
             },
             combined_inner_product: shift(combined_inner_product),
             b: shift(b),
-            xi: to_bytes(xi.0),
+            xi: to_bytes(xi.inner()),
             bulletproof_challenges: {
                 assert_eq!(new_bulletproof_challenges.len(), BACKEND_TICK_ROUNDS_N);
                 new_bulletproof_challenges
