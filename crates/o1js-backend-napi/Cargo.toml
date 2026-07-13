@@ -1,0 +1,19 @@
+[package]
+name = "o1js-backend-napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+test = false
+
+[dependencies]
+napi = { workspace = true }
+napi-derive = { workspace = true }
+o1js-backend = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = { workspace = true }

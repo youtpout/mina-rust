@@ -14,6 +14,7 @@ members = [
   "crates/node/native",
   "crates/node/web",
   "crates/o1js-backend",
+  "crates/o1js-backend-napi",
   "crates/p2p",
   "crates/p2p/libp2p-rpc-behaviour",
   "crates/p2p/testing",
@@ -174,6 +175,9 @@ mina-vrf = { path = "crates/vrf" }
 mio = { version = "1.0.4", features = ["os-poll", "net"] }
 multiaddr = { git = "https://github.com/multiformats/rust-multiaddr", rev = "a4a4fbd555bdda40a6758fa5e2e3ad69947ffcd7" }
 multihash = { version = "0.18.1", features = ["blake2b"] }
+napi = { git = "https://github.com/o1-labs/napi-rs.git", rev = "023d1d4f31bd75e8ab55c95b5077a319b5208cdf", version = "3.3.0", default-features = false, features = ["napi7"] }
+napi-build = "2.1.0"
+napi-derive = { git = "https://github.com/o1-labs/napi-rs.git", rev = "023d1d4f31bd75e8ab55c95b5077a319b5208cdf", version = "3.3.0", features = ["type-def"] }
 nix = { version = "0.27.1", features = ["process", "signal"] }
 nom = "8.0.0"
 num = { version = "0.4", features = ["std"] }

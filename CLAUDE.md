@@ -104,8 +104,16 @@ dispatcher shared by future NAPI and WASM bindings. Its v1 contract supports
 recorded-circuit registration, real Pickles base proving and standalone
 verification, Ledger creation/root/account operations, Mina signed-command
 construction/signing, and binprot Base64 encoding. Integration tests generate
-and verify a real proof. The next implementation target is the thin native NAPI
-transport from milestone 3.
+and verify a real proof.
+
+Milestone 3 is implemented in `o1js-backend-napi`. The NAPI layer is deliberately
+thin: it owns no protocol types and forwards the exact v1 JSON contract to the
+core adapter. Lightweight requests can run synchronously, while proving,
+verification, and Ledger work use the Node worker pool and accept an
+`AbortSignal`. The Node smoke test validates version negotiation, synchronous
+and concurrent asynchronous requests, a real Pickles proof, and cancellation of
+queued proving work. The next implementation target is the browser WASM
+transport from milestone 4 using the same serialized contract.
 
 _For detailed architecture documentation, see
 [`docs/handover/`](docs/handover/)_
