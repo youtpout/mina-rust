@@ -112,8 +112,19 @@ core adapter. Lightweight requests can run synchronously, while proving,
 verification, and Ledger work use the Node worker pool and accept an
 `AbortSignal`. The Node smoke test validates version negotiation, synchronous
 and concurrent asynchronous requests, a real Pickles proof, and cancellation of
-queued proving work. The next implementation target is the browser WASM
-transport from milestone 4 using the same serialized contract.
+queued proving work.
+
+Milestone 4 is implemented in `o1js-backend-wasm`. It exposes the same backend
+information and `execute` contract through `wasm-bindgen`, without translating
+requests or responses. Unit tests compare byte-for-byte responses from the WASM
+façade and the core dispatcher for version queries, structured errors, and a
+deterministic recorded-circuit compilation fixture. A real
+`wasm32-unknown-unknown` artifact builds with nightly and
+`-Z build-std=std,panic_abort`, which is required by this workspace's existing
+shared-memory and atomics configuration. Heavy calls must execute in an o1js Web
+Worker; JavaScript owns scheduling and cancellation so the browser UI thread is
+never blocked. The next implementation target is the o1js backend switch from
+milestone 5.
 
 _For detailed architecture documentation, see
 [`docs/handover/`](docs/handover/)_

@@ -15,6 +15,7 @@ members = [
   "crates/node/web",
   "crates/o1js-backend",
   "crates/o1js-backend-napi",
+  "crates/o1js-backend-wasm",
   "crates/p2p",
   "crates/p2p/libp2p-rpc-behaviour",
   "crates/p2p/testing",

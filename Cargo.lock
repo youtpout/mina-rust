@@ -6391,6 +6391,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "o1js-backend-wasm"
+version = "0.19.0"
+dependencies = [
+ "o1js-backend",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "object"
 version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

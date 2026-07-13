@@ -1,0 +1,17 @@
+[package]
+name = "o1js-backend-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+o1js-backend = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+wasm-bindgen-test = { workspace = true }
