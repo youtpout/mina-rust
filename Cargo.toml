@@ -13,6 +13,7 @@ members = [
   "crates/node/invariants",
   "crates/node/native",
   "crates/node/web",
+  "crates/o1js-backend",
   "crates/p2p",
   "crates/p2p/libp2p-rpc-behaviour",
   "crates/p2p/testing",
@@ -181,6 +182,7 @@ num-traits = "0.2"
 num_cpus = "1.0"
 num_enum = "0.5.7"
 o1-utils = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
+o1js-backend = { path = "crates/o1js-backend" }
 object = "0.37.1"
 once_cell = "1"
 p256 = { version = "0.13", features = ["default", "ecdh", "ecdsa"] }
@@ -189,6 +191,7 @@ pcap = "2.4"
 percent-encoding = "2.3"
 pin-project-lite = "0.2.10"
 poly-commitment = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
+pickles = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 poseidon = { path = "poseidon" }
 postcard = { version = "1.0.9", features = ["use-std"] }
 proc-macro2 = "1.0.103"
@@ -224,6 +227,7 @@ similar = "2.6.0"
 slab = { version = "0.4.7", features = ["serde"] }
 sled = "0.34"
 smallvec = "1.10.0"
+snarky = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json"] }
 static_assertions = "1.1.0"
 structopt = "0.3.26"

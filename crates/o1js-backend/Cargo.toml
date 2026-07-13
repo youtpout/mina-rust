@@ -1,0 +1,18 @@
+[package]
+name = "o1js-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ledger = { workspace = true }
+mina-p2p-messages = { workspace = true }
+mina-snark = { workspace = true }
+pickles = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+snarky = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
