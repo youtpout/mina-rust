@@ -1,4 +1,4 @@
-//! Transport-independent Mina and Pickles backend for o1js.
+//! Transport-independent Mina runtime for SDK consumers.
 //!
 //! This crate is the single production boundary between o1js and the Rust
 //! implementation. NAPI and WASM crates must be thin transports over this API;

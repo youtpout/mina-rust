@@ -63,7 +63,7 @@ proof serialization semantics behind one Rust boundary.
 
 Next integration milestones:
 
-1. **Core adapter crate.** Add a transport-independent `o1js-backend` crate to
+1. **Core adapter crate.** Add a transport-independent `mina-runtime` crate to
    this workspace. It owns session/handle lifetimes and depends on `mina-tree`,
    Mina protocol types, and the `pickles`/`snarky` crates from the same locked
    proof-systems revision. No JavaScript ABI types belong in this crate.
@@ -72,7 +72,7 @@ Next integration milestones:
    registration, `compile`, `prove`, `verify`, key serialization, and proof
    serialization. Define explicit backend and wire-format version queries so
    o1js can reject incompatible binaries instead of silently mis-decoding data.
-3. **Native transport.** Add a thin NAPI crate over `o1js-backend`. Move the
+3. **Native transport.** Add a thin NAPI crate over `mina-runtime`. Move the
    existing experimental Rust Pickles calls in o1js behind this façade and test
    cancellation, concurrent proving, cache ownership, and structured errors.
 4. **Browser transport.** Add a thin `wasm-bindgen` crate over the same core
@@ -98,7 +98,7 @@ Rust integration test that creates a Ledger, compiles a minimal recursive
 program, proves it, verifies it, and round-trips every returned artifact before
 any NAPI or WASM code is introduced.
 
-Milestones 1 and 2 are implemented on `pickle-rs` in the `o1js-backend` crate.
+Milestones 1 and 2 are implemented on `pickle-rs` in the `mina-runtime` crate.
 The crate provides a transport-independent resource store and a versioned JSON
 dispatcher shared by future NAPI and WASM bindings. Its v1 contract supports
 recorded-circuit registration, real Pickles base proving and standalone
@@ -106,7 +106,7 @@ verification, Ledger creation/root/account operations, Mina signed-command
 construction/signing, and binprot Base64 encoding. Integration tests generate
 and verify a real proof.
 
-Milestone 3 is implemented in `o1js-backend-napi`. The NAPI layer is deliberately
+Milestone 3 is implemented in `mina-runtime-napi`. The NAPI layer is deliberately
 thin: it owns no protocol types and forwards the exact v1 JSON contract to the
 core adapter. Lightweight requests can run synchronously, while proving,
 verification, and Ledger work use the Node worker pool and accept an
@@ -114,7 +114,7 @@ verification, and Ledger work use the Node worker pool and accept an
 and concurrent asynchronous requests, a real Pickles proof, and cancellation of
 queued proving work.
 
-Milestone 4 is implemented in `o1js-backend-wasm`. It exposes the same backend
+Milestone 4 is implemented in `mina-runtime-wasm`. It exposes the same backend
 information and `execute` contract through `wasm-bindgen`, without translating
 requests or responses. Unit tests compare byte-for-byte responses from the WASM
 façade and the core dispatcher for version queries, structured errors, and a

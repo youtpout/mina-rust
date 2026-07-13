@@ -3,16 +3,16 @@ import { createRequire } from 'node:module';
 
 const modulePath = process.argv[2];
 if (modulePath === undefined) {
-  throw new Error('usage: node smoke.mjs /absolute/path/to/o1js_backend.node');
+  throw new Error('usage: node smoke.mjs /absolute/path/to/mina_runtime.node');
 }
 
 const require = createRequire(import.meta.url);
-const { backendInfo, MinaRustBackend } = require(modulePath);
+const { backendInfo, MinaRuntime } = require(modulePath);
 const info = JSON.parse(backendInfo());
 assert.equal(info.backendApiVersion, 1);
 assert.equal(info.wireFormatVersion, 1);
 
-const backend = new MinaRustBackend(8);
+const backend = new MinaRuntime(8);
 const getInfo = JSON.stringify({
   version: 1,
   payload: { operation: 'getInfo' },

@@ -13,9 +13,9 @@ members = [
   "crates/node/invariants",
   "crates/node/native",
   "crates/node/web",
-  "crates/o1js-backend",
-  "crates/o1js-backend-napi",
-  "crates/o1js-backend-wasm",
+  "crates/mina-runtime",
+  "crates/mina-runtime-napi",
+  "crates/mina-runtime-wasm",
   "crates/p2p",
   "crates/p2p/libp2p-rpc-behaviour",
   "crates/p2p/testing",
@@ -187,7 +187,7 @@ num-traits = "0.2"
 num_cpus = "1.0"
 num_enum = "0.5.7"
 o1-utils = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
-o1js-backend = { path = "crates/o1js-backend" }
+mina-runtime = { path = "crates/mina-runtime" }
 object = "0.37.1"
 once_cell = "1"
 p256 = { version = "0.13", features = ["default", "ecdh", "ecdsa"] }

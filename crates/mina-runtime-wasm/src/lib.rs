@@ -1,4 +1,4 @@
-//! Thin WebAssembly transport for [`o1js_backend`].
+//! Thin WebAssembly transport for [`mina_runtime`].
 //!
 //! The methods are synchronous on purpose: proof generation must run inside a
 //! Web Worker so it cannot block the browser's UI thread. The JavaScript worker
@@ -6,16 +6,16 @@
 
 use wasm_bindgen::prelude::*;
 
-use o1js_backend::{Backend, BackendConfig};
+use mina_runtime::{Backend, BackendConfig};
 
 /// Owns one backend resource domain inside a Web Worker. Circuit and Ledger
 /// handles are valid only for the lifetime of this object.
-#[wasm_bindgen(js_name = MinaRustBackend)]
+#[wasm_bindgen(js_name = MinaRuntime)]
 pub struct WasmBackend {
     inner: Backend,
 }
 
-#[wasm_bindgen(js_class = MinaRustBackend)]
+#[wasm_bindgen(js_class = MinaRuntime)]
 impl WasmBackend {
     #[wasm_bindgen(constructor)]
     pub fn new(max_resources: Option<u32>) -> Self {

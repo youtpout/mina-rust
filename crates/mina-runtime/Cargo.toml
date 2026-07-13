@@ -1,5 +1,5 @@
 [package]
-name = "o1js-backend"
+name = "mina-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

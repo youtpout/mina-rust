@@ -1,10 +1,10 @@
-//! Thin Node-API transport for [`o1js_backend`].
+//! Thin Node-API transport for [`mina_runtime`].
 
 use std::sync::Arc;
 
+use mina_runtime::{Backend, BackendConfig};
 use napi::bindgen_prelude::{AbortSignal, AsyncTask, Env, Result, Task};
 use napi_derive::napi;
-use o1js_backend::{Backend, BackendConfig};
 
 /// A cancellable execution of one versioned backend request.
 pub struct ExecuteTask {
@@ -28,7 +28,7 @@ impl Task for ExecuteTask {
 
 /// Owns one backend resource domain. Circuit and Ledger handles are valid only
 /// for the lifetime of this object.
-#[napi(js_name = "MinaRustBackend")]
+#[napi(js_name = "MinaRuntime")]
 pub struct NativeBackend {
     inner: Arc<Backend>,
 }

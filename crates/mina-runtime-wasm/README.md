@@ -1,6 +1,6 @@
-# o1js browser backend
+# Mina browser runtime
 
-This crate exposes the transport-independent `o1js-backend` v1 JSON contract
+This crate exposes the transport-independent `mina-runtime` v1 JSON contract
 through `wasm-bindgen`. It contains no duplicate Mina or Pickles protocol
 conversion code.
 
@@ -13,7 +13,7 @@ artifact with the workspace's nightly atomics configuration and a rebuilt
 standard library:
 
 ```text
-cargo +nightly build -p o1js-backend-wasm \
+cargo +nightly build -p mina-runtime-wasm \
   --target wasm32-unknown-unknown \
   -Z build-std=std,panic_abort
 ```

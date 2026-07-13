@@ -1,5 +1,5 @@
 [package]
-name = "o1js-backend-wasm"
+name = "mina-runtime-wasm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-o1js-backend = { workspace = true }
+mina-runtime = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
 
