@@ -6266,12 +6266,18 @@ dependencies = [
 name = "o1js-backend"
 version = "0.19.0"
 dependencies = [
+ "base64 0.22.1",
+ "binprot",
+ "hex",
+ "mina-curves",
  "mina-p2p-messages",
+ "mina-signer",
  "mina-snark",
  "mina-tree",
  "pickles",
  "serde",
  "serde_json",
+ "sha2 0.10.8",
  "snarky",
  "thiserror 1.0.60",
 ]

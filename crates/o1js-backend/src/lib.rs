@@ -12,6 +12,13 @@ use std::{
     },
 };
 
+mod backend;
+mod contract;
+mod transaction;
+
+pub use backend::{Backend, BackendError};
+pub use contract::*;
+
 /// Configuration shared by every transport using a backend instance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackendConfig {
@@ -28,12 +35,17 @@ impl Default for BackendConfig {
 }
 
 /// An opaque identifier suitable for crossing a native or WASM boundary.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct ResourceId(u64);
 
 impl ResourceId {
     pub const fn get(self) -> u64 {
         self.0
+    }
+
+    pub const fn from_raw(id: u64) -> Self {
+        Self(id)
     }
 }
 

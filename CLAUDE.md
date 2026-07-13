@@ -98,6 +98,15 @@ Rust integration test that creates a Ledger, compiles a minimal recursive
 program, proves it, verifies it, and round-trips every returned artifact before
 any NAPI or WASM code is introduced.
 
+Milestones 1 and 2 are implemented on `pickle-rs` in the `o1js-backend` crate.
+The crate provides a transport-independent resource store and a versioned JSON
+dispatcher shared by future NAPI and WASM bindings. Its v1 contract supports
+recorded-circuit registration, real Pickles base proving and standalone
+verification, Ledger creation/root/account operations, Mina signed-command
+construction/signing, and binprot Base64 encoding. Integration tests generate
+and verify a real proof. The next implementation target is the thin native NAPI
+transport from milestone 3.
+
 _For detailed architecture documentation, see
 [`docs/handover/`](docs/handover/)_
 

@@ -5,12 +5,18 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+base64 = { workspace = true }
+binprot = { workspace = true }
+hex = { workspace = true }
 ledger = { workspace = true }
+mina-curves = { workspace = true }
 mina-p2p-messages = { workspace = true }
+mina-signer = { workspace = true }
 mina-snark = { workspace = true }
 pickles = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 snarky = { workspace = true }
 thiserror = { workspace = true }
 
