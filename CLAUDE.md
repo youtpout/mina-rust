@@ -106,6 +106,16 @@ verification, Ledger creation/root/account operations, Mina signed-command
 construction/signing, and binprot Base64 encoding. Integration tests generate
 and verify a real proof.
 
+The v1 proof contract also supports the first regular recursive slice used by
+o1js: `proveCircuitKeep` stores a full base proof behind an opaque process-local
+handle, `proveCircuitN1Over` verifies that proof in a new recorded step, and
+`verifyRecursiveProof` verifies the serialized N1 result with its step VK and
+bulletproof challenge metadata. `dropProof` explicitly releases the retained
+base proof. The release integration test exercises keep → N1 → standalone
+verification with real Pickles proofs. A serialized proof remains verifiable,
+but extending a chain after process loss is not supported until the retained
+base handle has a stable import/export format.
+
 Milestone 3 is implemented in `mina-runtime-napi`. The NAPI layer is deliberately
 thin: it owns no protocol types and forwards the exact v1 JSON contract to the
 core adapter. Lightweight requests can run synchronously, while proving,

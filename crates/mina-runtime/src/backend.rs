@@ -5,8 +5,11 @@ use mina_curves::pasta::Fp;
 use mina_signer::CompressedPubKey;
 use pickles::{
     api::MinaWrapProof,
-    recorded::{prove_recorded_base_case, RecordedCircuit},
-    verify::verify_side_loaded_base_case,
+    recorded::{
+        prove_recorded_base_case, prove_recorded_base_case_keep, prove_recorded_n1_over,
+        RecordedBaseHandle, RecordedCircuit,
+    },
+    verify::{verify_side_loaded_base_case, verify_side_loaded_with_step_vk},
 };
 use sha2::{Digest, Sha256};
 
@@ -60,6 +63,7 @@ impl BackendError {
 
 pub struct Backend {
     circuits: ResourceStore<RecordedCircuit>,
+    base_proofs: ResourceStore<RecordedBaseHandle>,
     ledgers: ResourceStore<Database<V2>>,
 }
 
@@ -73,6 +77,7 @@ impl Backend {
     pub fn new(config: BackendConfig) -> Self {
         Self {
             circuits: ResourceStore::new(config.max_resources),
+            base_proofs: ResourceStore::new(config.max_resources),
             ledgers: ResourceStore::new(config.max_resources),
         }
     }
@@ -88,6 +93,8 @@ impl Backend {
                 "mina-signed-command-v2",
                 "recorded-circuit-v1",
                 "pickles-base-proof-v1",
+                "pickles-kept-base-proof-v1",
+                "pickles-recursive-n1-v1",
             ]
             .into_iter()
             .map(str::to_owned)
@@ -158,6 +165,97 @@ impl Backend {
                 reason: Some(format!("{error:?}")),
             },
         })
+    }
+
+    pub fn prove_circuit_keep(
+        &self,
+        request: ProveCircuitRequest,
+    ) -> Result<KeptProofResponse, BackendError> {
+        let circuit = self.circuits.with(request.circuit_id, Clone::clone)?;
+        let witness = parse_fields(&request.witness)?;
+        let handle = catch_unwind(AssertUnwindSafe(|| {
+            prove_recorded_base_case_keep(circuit, witness)
+        }))
+        .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
+        .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        let envelope = handle.to_recorded_proof();
+        let proof_id = self.base_proofs.insert(handle)?;
+        Ok(KeptProofResponse {
+            proof_id,
+            app_state: fields_to_strings(&envelope.app_state),
+            proof: envelope.proof.to_o1js_json_value(),
+        })
+    }
+
+    pub fn prove_circuit_n1_over(
+        &self,
+        request: ProveCircuitN1OverRequest,
+    ) -> Result<RecursiveProofResponse, BackendError> {
+        let circuit = self.circuits.with(request.circuit_id, Clone::clone)?;
+        let witness = parse_fields(&request.witness)?;
+        let proved = self
+            .base_proofs
+            .with(request.previous_proof_id, |previous| {
+                catch_unwind(AssertUnwindSafe(|| {
+                    prove_recorded_n1_over(previous, circuit, witness)
+                }))
+            })?
+            .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
+            .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        Ok(RecursiveProofResponse {
+            app_state: fields_to_strings(&proved.app_state),
+            proof: proved.proof.to_o1js_json_value(),
+            challenge_polynomial_commitment: point_to_strings(
+                proved.challenge_polynomial_commitment,
+            ),
+            old_bulletproof_challenges: fields_to_strings(&proved.old_bulletproof_challenges),
+            dlog_plonk_index: proved
+                .dlog_plonk_index
+                .into_iter()
+                .map(point_to_strings)
+                .collect(),
+        })
+    }
+
+    pub fn verify_recursive_proof(
+        &self,
+        request: VerifyRecursiveProofRequest,
+    ) -> Result<VerifyProofResponse, BackendError> {
+        let app_state = parse_fields(&request.app_state)?;
+        let dlog_plonk_index = parse_points(&request.dlog_plonk_index)?;
+        let commitments = parse_points(&request.challenge_polynomial_commitments)?;
+        let challenges = request
+            .old_bulletproof_challenges
+            .iter()
+            .map(|values| parse_fields(values))
+            .collect::<Result<Vec<_>, _>>()?;
+        let proof = match MinaWrapProof::from_o1js_json_value(request.proof) {
+            Ok(proof) => proof,
+            Err(error) => {
+                return Ok(VerifyProofResponse {
+                    valid: false,
+                    reason: Some(format!("{error:?}")),
+                });
+            }
+        };
+        Ok(
+            match verify_side_loaded_with_step_vk(
+                &app_state,
+                Some(&dlog_plonk_index),
+                &commitments,
+                &challenges,
+                &proof,
+            ) {
+                Ok(_) => VerifyProofResponse {
+                    valid: true,
+                    reason: None,
+                },
+                Err(error) => VerifyProofResponse {
+                    valid: false,
+                    reason: Some(format!("{error:?}")),
+                },
+            },
+        )
     }
 
     pub fn create_ledger(
@@ -261,8 +359,17 @@ impl Backend {
             BackendRequest::ProveCircuit(request) => {
                 BackendResponse::ProofCreated(self.prove_circuit(request)?)
             }
+            BackendRequest::ProveCircuitKeep(request) => {
+                BackendResponse::ProofKept(self.prove_circuit_keep(request)?)
+            }
+            BackendRequest::ProveCircuitN1Over(request) => {
+                BackendResponse::RecursiveProofCreated(self.prove_circuit_n1_over(request)?)
+            }
             BackendRequest::VerifyProof(request) => {
                 BackendResponse::ProofVerified(self.verify_proof(request)?)
+            }
+            BackendRequest::VerifyRecursiveProof(request) => {
+                BackendResponse::ProofVerified(self.verify_recursive_proof(request)?)
             }
             BackendRequest::CreateLedger(request) => {
                 BackendResponse::LedgerCreated(self.create_ledger(request)?)
@@ -281,6 +388,10 @@ impl Backend {
             }
             BackendRequest::DropCircuit { circuit_id } => {
                 self.circuits.remove(circuit_id)?;
+                BackendResponse::ResourceDropped
+            }
+            BackendRequest::DropProof { proof_id } => {
+                self.base_proofs.remove(proof_id)?;
                 BackendResponse::ResourceDropped
             }
             BackendRequest::DropLedger { ledger_id } => {
@@ -326,6 +437,23 @@ fn parse_fields(fields: &[String]) -> Result<Vec<Fp>, BackendError> {
 
 fn fields_to_strings(fields: &[Fp]) -> Vec<String> {
     fields.iter().map(ToString::to_string).collect()
+}
+
+fn parse_points(points: &[(String, String)]) -> Result<Vec<(Fp, Fp)>, BackendError> {
+    points
+        .iter()
+        .map(|(x, y)| Ok((parse_field(x)?, parse_field(y)?)))
+        .collect()
+}
+
+fn parse_field(field: &str) -> Result<Fp, BackendError> {
+    field
+        .parse::<Fp>()
+        .map_err(|_| BackendError::Field(field.to_owned()))
+}
+
+fn point_to_strings((x, y): (Fp, Fp)) -> (String, String) {
+    (x.to_string(), y.to_string())
 }
 
 #[cfg(test)]
@@ -457,6 +585,49 @@ mod tests {
                 .unwrap()
                 .valid
         );
+    }
+
+    #[test]
+    fn kept_base_proof_drives_and_verifies_a_recursive_n1_step() {
+        let backend = Backend::default();
+        let compiled = backend
+            .compile_circuit(CompileCircuitRequest {
+                circuit: square_circuit(),
+            })
+            .unwrap();
+        let base = backend
+            .prove_circuit_keep(ProveCircuitRequest {
+                circuit_id: compiled.circuit_id,
+                witness: vec!["6".to_owned(), "36".to_owned()],
+            })
+            .unwrap();
+        let recursive = backend
+            .prove_circuit_n1_over(ProveCircuitN1OverRequest {
+                circuit_id: compiled.circuit_id,
+                previous_proof_id: base.proof_id,
+                witness: vec!["7".to_owned(), "49".to_owned()],
+            })
+            .unwrap();
+        assert_eq!(recursive.app_state, ["49"]);
+        assert!(
+            backend
+                .verify_recursive_proof(VerifyRecursiveProofRequest {
+                    app_state: recursive.app_state,
+                    proof: recursive.proof,
+                    challenge_polynomial_commitments: vec![
+                        recursive.challenge_polynomial_commitment,
+                    ],
+                    old_bulletproof_challenges: vec![recursive.old_bulletproof_challenges],
+                    dlog_plonk_index: recursive.dlog_plonk_index,
+                })
+                .unwrap()
+                .valid
+        );
+        assert!(backend.base_proofs.remove(base.proof_id).is_ok());
+        assert!(matches!(
+            backend.base_proofs.remove(base.proof_id),
+            Err(ResourceError::NotFound { .. })
+        ));
     }
 
     #[test]

@@ -58,6 +58,14 @@ pub struct ProveCircuitRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProveCircuitN1OverRequest {
+    pub circuit_id: ResourceId,
+    pub previous_proof_id: ResourceId,
+    pub witness: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProofResponse {
     pub app_state: Vec<String>,
     pub proof: O1jsWrapProofJson,
@@ -65,9 +73,37 @@ pub struct ProofResponse {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct KeptProofResponse {
+    pub proof_id: ResourceId,
+    pub app_state: Vec<String>,
+    pub proof: O1jsWrapProofJson,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecursiveProofResponse {
+    pub app_state: Vec<String>,
+    pub proof: O1jsWrapProofJson,
+    pub challenge_polynomial_commitment: (String, String),
+    pub old_bulletproof_challenges: Vec<String>,
+    pub dlog_plonk_index: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VerifyProofRequest {
     pub app_state: Vec<String>,
     pub proof: O1jsWrapProofJson,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyRecursiveProofRequest {
+    pub app_state: Vec<String>,
+    pub proof: O1jsWrapProofJson,
+    pub challenge_polynomial_commitments: Vec<(String, String)>,
+    pub old_bulletproof_challenges: Vec<Vec<String>>,
+    pub dlog_plonk_index: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,13 +197,17 @@ pub enum BackendRequest {
     GetInfo,
     CompileCircuit(CompileCircuitRequest),
     ProveCircuit(ProveCircuitRequest),
+    ProveCircuitKeep(ProveCircuitRequest),
+    ProveCircuitN1Over(ProveCircuitN1OverRequest),
     VerifyProof(VerifyProofRequest),
+    VerifyRecursiveProof(VerifyRecursiveProofRequest),
     CreateLedger(CreateLedgerRequest),
     LedgerRoot(LedgerRootRequest),
     LedgerGetAccount(LedgerGetAccountRequest),
     LedgerSetAccount(LedgerSetAccountRequest),
     SignTransaction(SignTransactionRequest),
     DropCircuit { circuit_id: ResourceId },
+    DropProof { proof_id: ResourceId },
     DropLedger { ledger_id: ResourceId },
 }
 
@@ -177,6 +217,8 @@ pub enum BackendResponse {
     Info(BackendInfo),
     CircuitCompiled(CompileCircuitResponse),
     ProofCreated(ProofResponse),
+    ProofKept(KeptProofResponse),
+    RecursiveProofCreated(RecursiveProofResponse),
     ProofVerified(VerifyProofResponse),
     LedgerCreated(LedgerResponse),
     LedgerRoot(LedgerRootResponse),
