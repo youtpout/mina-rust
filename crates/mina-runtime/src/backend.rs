@@ -6,8 +6,8 @@ use mina_signer::CompressedPubKey;
 use pickles::{
     api::MinaWrapProof,
     recorded::{
-        prove_recorded_base_case, prove_recorded_base_case_keep, prove_recorded_n1_over,
-        RecordedBaseHandle, RecordedCircuit,
+        prove_recorded_base_case, prove_recorded_base_case_keep, prove_recorded_n1_over_keep,
+        RecordedCircuit, RecordedProofHandle,
     },
     verify::{verify_side_loaded_base_case, verify_side_loaded_with_step_vk},
 };
@@ -63,7 +63,7 @@ impl BackendError {
 
 pub struct Backend {
     circuits: ResourceStore<RecordedCircuit>,
-    base_proofs: ResourceStore<RecordedBaseHandle>,
+    proofs: ResourceStore<RecordedProofHandle>,
     ledgers: ResourceStore<Database<V2>>,
 }
 
@@ -77,7 +77,7 @@ impl Backend {
     pub fn new(config: BackendConfig) -> Self {
         Self {
             circuits: ResourceStore::new(config.max_resources),
-            base_proofs: ResourceStore::new(config.max_resources),
+            proofs: ResourceStore::new(config.max_resources),
             ledgers: ResourceStore::new(config.max_resources),
         }
     }
@@ -179,7 +179,7 @@ impl Backend {
         .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
         .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
         let envelope = handle.to_recorded_proof();
-        let proof_id = self.base_proofs.insert(handle)?;
+        let proof_id = self.proofs.insert(handle)?;
         Ok(KeptProofResponse {
             proof_id,
             app_state: fields_to_strings(&envelope.app_state),
@@ -193,16 +193,21 @@ impl Backend {
     ) -> Result<RecursiveProofResponse, BackendError> {
         let circuit = self.circuits.with(request.circuit_id, Clone::clone)?;
         let witness = parse_fields(&request.witness)?;
-        let proved = self
-            .base_proofs
+        let handle = self
+            .proofs
             .with(request.previous_proof_id, |previous| {
                 catch_unwind(AssertUnwindSafe(|| {
-                    prove_recorded_n1_over(previous, circuit, witness)
+                    prove_recorded_n1_over_keep(previous, circuit, witness)
                 }))
             })?
             .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
             .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        let proved = handle
+            .to_recorded_n1_proof()
+            .expect("N1 proving always returns a recursive handle");
+        let proof_id = self.proofs.insert(handle)?;
         Ok(RecursiveProofResponse {
+            proof_id,
             app_state: fields_to_strings(&proved.app_state),
             proof: proved.proof.to_o1js_json_value(),
             challenge_polynomial_commitment: point_to_strings(
@@ -391,7 +396,7 @@ impl Backend {
                 BackendResponse::ResourceDropped
             }
             BackendRequest::DropProof { proof_id } => {
-                self.base_proofs.remove(proof_id)?;
+                self.proofs.remove(proof_id)?;
                 BackendResponse::ResourceDropped
             }
             BackendRequest::DropLedger { ledger_id } => {
@@ -588,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn kept_base_proof_drives_and_verifies_a_recursive_n1_step() {
+    fn retained_proofs_drive_and_verify_a_chained_recursive_n1_program() {
         let backend = Backend::default();
         let compiled = backend
             .compile_circuit(CompileCircuitRequest {
@@ -601,31 +606,51 @@ mod tests {
                 witness: vec!["6".to_owned(), "36".to_owned()],
             })
             .unwrap();
-        let recursive = backend
+        let first = backend
             .prove_circuit_n1_over(ProveCircuitN1OverRequest {
                 circuit_id: compiled.circuit_id,
                 previous_proof_id: base.proof_id,
                 witness: vec!["7".to_owned(), "49".to_owned()],
             })
             .unwrap();
-        assert_eq!(recursive.app_state, ["49"]);
+        assert_eq!(first.app_state, ["49"]);
         assert!(
             backend
                 .verify_recursive_proof(VerifyRecursiveProofRequest {
-                    app_state: recursive.app_state,
-                    proof: recursive.proof,
-                    challenge_polynomial_commitments: vec![
-                        recursive.challenge_polynomial_commitment,
-                    ],
-                    old_bulletproof_challenges: vec![recursive.old_bulletproof_challenges],
-                    dlog_plonk_index: recursive.dlog_plonk_index,
+                    app_state: first.app_state.clone(),
+                    proof: first.proof.clone(),
+                    challenge_polynomial_commitments: vec![first.challenge_polynomial_commitment,],
+                    old_bulletproof_challenges: vec![first.old_bulletproof_challenges.clone()],
+                    dlog_plonk_index: first.dlog_plonk_index.clone(),
                 })
                 .unwrap()
                 .valid
         );
-        assert!(backend.base_proofs.remove(base.proof_id).is_ok());
+        let second = backend
+            .prove_circuit_n1_over(ProveCircuitN1OverRequest {
+                circuit_id: compiled.circuit_id,
+                previous_proof_id: first.proof_id,
+                witness: vec!["8".to_owned(), "64".to_owned()],
+            })
+            .unwrap();
+        assert_eq!(second.app_state, ["64"]);
+        assert!(
+            backend
+                .verify_recursive_proof(VerifyRecursiveProofRequest {
+                    app_state: second.app_state,
+                    proof: second.proof,
+                    challenge_polynomial_commitments: vec![second.challenge_polynomial_commitment,],
+                    old_bulletproof_challenges: vec![second.old_bulletproof_challenges],
+                    dlog_plonk_index: second.dlog_plonk_index,
+                })
+                .unwrap()
+                .valid
+        );
+        assert!(backend.proofs.remove(base.proof_id).is_ok());
+        assert!(backend.proofs.remove(first.proof_id).is_ok());
+        assert!(backend.proofs.remove(second.proof_id).is_ok());
         assert!(matches!(
-            backend.base_proofs.remove(base.proof_id),
+            backend.proofs.remove(base.proof_id),
             Err(ResourceError::NotFound { .. })
         ));
     }

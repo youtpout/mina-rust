@@ -82,6 +82,7 @@ pub struct KeptProofResponse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecursiveProofResponse {
+    pub proof_id: ResourceId,
     pub app_state: Vec<String>,
     pub proof: O1jsWrapProofJson,
     pub challenge_polynomial_commitment: (String, String),
