@@ -1,4 +1,7 @@
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::{
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::Mutex,
+};
 
 use ledger::{AccountId, BaseLedger, Database, TokenId, V2};
 use mina_curves::pasta::Fp;
@@ -6,8 +9,7 @@ use mina_signer::CompressedPubKey;
 use pickles::{
     api::MinaWrapProof,
     recorded::{
-        prove_recorded_base_case, prove_recorded_base_case_keep, prove_recorded_n1_over_keep,
-        prove_recorded_n2_over_base_handles, RecordedCircuit, RecordedProofHandle,
+        RecordedCompiledBase, RecordedCompiledN1, RecordedCompiledN2, RecordedProofHandle,
     },
     verify::{verify_side_loaded_base_case, verify_side_loaded_with_step_vk},
 };
@@ -61,8 +63,14 @@ impl BackendError {
     }
 }
 
+struct CompiledCircuitResource {
+    base: Mutex<RecordedCompiledBase>,
+    n1: Option<Mutex<RecordedCompiledN1>>,
+    n2: Option<Mutex<RecordedCompiledN2>>,
+}
+
 pub struct Backend {
-    circuits: ResourceStore<RecordedCircuit>,
+    circuits: ResourceStore<CompiledCircuitResource>,
     proofs: ResourceStore<RecordedProofHandle>,
     ledgers: ResourceStore<Database<V2>>,
 }
@@ -116,7 +124,56 @@ impl Backend {
         let digest = hex::encode(Sha256::digest(encoded));
         let witness_size = request.circuit.aux_count;
         let public_output_size = request.circuit.output.len();
-        let circuit_id = self.circuits.insert(request.circuit)?;
+        let witness = parse_fields(&request.witness)?;
+        let mut base = catch_unwind(AssertUnwindSafe(|| {
+            RecordedCompiledBase::compile(request.circuit.clone(), witness.clone())
+        }))
+        .map_err(|_| BackendError::Proving("the Pickles compiler panicked".to_owned()))?
+        .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        if request.proofs_verified > 2 {
+            return Err(BackendError::Circuit("proofsVerified must be 0, 1 or 2".to_owned()));
+        }
+        let template = (request.proofs_verified > 0)
+            .then(|| {
+                catch_unwind(AssertUnwindSafe(|| base.prove_keep(witness.clone())))
+                    .map_err(|_| {
+                        BackendError::Proving("the Pickles bootstrap prover panicked".to_owned())
+                    })?
+                    .map_err(|error| BackendError::Proving(format!("{error:?}")))
+            })
+            .transpose()?;
+        let n1 = (request.proofs_verified == 1)
+            .then(|| {
+                catch_unwind(AssertUnwindSafe(|| {
+                    RecordedCompiledN1::compile(
+                        template.as_ref().expect("recursive compilation template"),
+                        request.circuit.clone(),
+                        parse_fields(&request.witness).expect("witness was validated"),
+                    )
+                }))
+                .map_err(|_| BackendError::Proving("the Pickles recursive compiler panicked".to_owned()))?
+                .map_err(|error| BackendError::Proving(format!("{error:?}")))
+            })
+            .transpose()?;
+        let n2 = (request.proofs_verified == 2)
+            .then(|| {
+                catch_unwind(AssertUnwindSafe(|| {
+                    RecordedCompiledN2::compile(
+                        template.as_ref().expect("recursive compilation template"),
+                        template.as_ref().expect("recursive compilation template"),
+                        request.circuit.clone(),
+                        parse_fields(&request.witness).expect("witness was validated"),
+                    )
+                }))
+                .map_err(|_| BackendError::Proving("the Pickles N2 compiler panicked".to_owned()))?
+                .map_err(|error| BackendError::Proving(format!("{error:?}")))
+            })
+            .transpose()?;
+        let circuit_id = self.circuits.insert(CompiledCircuitResource {
+            base: Mutex::new(base),
+            n1: n1.map(Mutex::new),
+            n2: n2.map(Mutex::new),
+        })?;
         Ok(CompileCircuitResponse {
             circuit_id,
             circuit_digest: digest,
@@ -125,17 +182,43 @@ impl Backend {
         })
     }
 
+    pub fn compile_program(
+        &self,
+        request: CompileProgramRequest,
+    ) -> Result<CompileProgramResponse, BackendError> {
+        let mut branches = Vec::with_capacity(request.branches.len());
+        for branch in request.branches {
+            match self.compile_circuit(branch) {
+                Ok(compiled) => branches.push(compiled),
+                Err(error) => {
+                    for compiled in branches {
+                        let _ = self.circuits.remove(compiled.circuit_id);
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(CompileProgramResponse { branches })
+    }
+
     pub fn prove_circuit(
         &self,
         request: ProveCircuitRequest,
     ) -> Result<ProofResponse, BackendError> {
-        let circuit = self.circuits.with(request.circuit_id, Clone::clone)?;
         let witness = parse_fields(&request.witness)?;
-        let proved = catch_unwind(AssertUnwindSafe(|| {
-            prove_recorded_base_case(circuit, witness)
-        }))
+        let proved = self.circuits.with(request.circuit_id, |compiled| {
+            catch_unwind(AssertUnwindSafe(|| {
+                compiled
+                    .base
+                    .lock()
+                    .map_err(|_| BackendError::Proving("compiled base lock poisoned".to_owned()))?
+                    .prove_keep(witness)
+                    .map(|handle| handle.to_recorded_proof())
+                    .map_err(|error| BackendError::Proving(format!("{error:?}")))
+            }))
+        })?
         .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
-        .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        ?;
         Ok(ProofResponse {
             app_state: fields_to_strings(&proved.app_state),
             proof: proved.proof.to_o1js_json_value(),
@@ -172,13 +255,19 @@ impl Backend {
         &self,
         request: ProveCircuitRequest,
     ) -> Result<KeptProofResponse, BackendError> {
-        let circuit = self.circuits.with(request.circuit_id, Clone::clone)?;
         let witness = parse_fields(&request.witness)?;
-        let handle = catch_unwind(AssertUnwindSafe(|| {
-            prove_recorded_base_case_keep(circuit, witness)
-        }))
+        let handle = self.circuits.with(request.circuit_id, |compiled| {
+            catch_unwind(AssertUnwindSafe(|| {
+                compiled
+                    .base
+                    .lock()
+                    .map_err(|_| BackendError::Proving("compiled base lock poisoned".to_owned()))?
+                    .prove_keep(witness)
+                    .map_err(|error| BackendError::Proving(format!("{error:?}")))
+            }))
+        })?
         .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
-        .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        ?;
         let envelope = handle.to_recorded_proof();
         let proof_id = self.proofs.insert(handle)?;
         Ok(KeptProofResponse {
@@ -192,17 +281,23 @@ impl Backend {
         &self,
         request: ProveCircuitN1OverRequest,
     ) -> Result<RecursiveProofResponse, BackendError> {
-        let circuit = self.circuits.with(request.circuit_id, Clone::clone)?;
         let witness = parse_fields(&request.witness)?;
-        let handle = self
-            .proofs
-            .with(request.previous_proof_id, |previous| {
+        let handle = self.circuits.with(request.circuit_id, |compiled| {
+            self.proofs.with(request.previous_proof_id, |previous| {
                 catch_unwind(AssertUnwindSafe(|| {
-                    prove_recorded_n1_over_keep(previous, circuit, witness)
+                    compiled
+                        .n1
+                        .as_ref()
+                        .ok_or_else(|| BackendError::Proving("circuit was not compiled as N1".to_owned()))?
+                        .lock()
+                        .map_err(|_| BackendError::Proving("compiled N1 lock poisoned".to_owned()))?
+                        .prove_keep(previous, witness)
+                        .map_err(|error| BackendError::Proving(format!("{error:?}")))
                 }))
-            })?
+            })
+        })??
             .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
-            .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+            ?;
         let proved = handle
             .to_recorded_n1_proof()
             .expect("N1 proving always returns a recursive handle");
@@ -268,21 +363,27 @@ impl Backend {
         &self,
         request: ProveCircuitN2OverRequest,
     ) -> Result<RecursiveN2ProofResponse, BackendError> {
-        let circuit = self.circuits.with(request.circuit_id, Clone::clone)?;
         let witness = parse_fields(&request.witness)?;
-        let proved = self
-            .proofs
-            .with_two(
+        let proved = self.circuits.with(request.circuit_id, |compiled| {
+            self.proofs.with_two(
                 request.first_proof_id,
                 request.second_proof_id,
                 |first, second| {
                     catch_unwind(AssertUnwindSafe(|| {
-                        prove_recorded_n2_over_base_handles(first, second, circuit, witness)
+                        compiled
+                            .n2
+                            .as_ref()
+                            .ok_or_else(|| BackendError::Proving("circuit was not compiled as N2".to_owned()))?
+                            .lock()
+                            .map_err(|_| BackendError::Proving("compiled N2 lock poisoned".to_owned()))?
+                            .prove(first, second, witness)
+                            .map_err(|error| BackendError::Proving(format!("{error:?}")))
                     }))
                 },
-            )?
+            )
+        })??
             .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
-            .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+            ?;
         Ok(RecursiveN2ProofResponse {
             app_state: fields_to_strings(&proved.app_state),
             proof: proved.proof.to_o1js_json_value(),
@@ -402,6 +503,9 @@ impl Backend {
             BackendRequest::CompileCircuit(request) => {
                 BackendResponse::CircuitCompiled(self.compile_circuit(request)?)
             }
+            BackendRequest::CompileProgram(request) => {
+                BackendResponse::ProgramCompiled(self.compile_program(request)?)
+            }
             BackendRequest::ProveCircuit(request) => {
                 BackendResponse::ProofCreated(self.prove_circuit(request)?)
             }
@@ -520,7 +624,7 @@ mod tests {
     use mina_curves::pasta::Fq;
     use mina_p2p_messages::v2::MinaBaseSignedCommandStableV2;
     use mina_signer::{Keypair, SecKey, Signature};
-    use pickles::recorded::{LinComb, RecordedConstraint};
+    use pickles::recorded::{LinComb, RecordedCircuit, RecordedConstraint};
 
     use super::*;
 
@@ -604,6 +708,8 @@ mod tests {
         let compiled = backend
             .compile_circuit(CompileCircuitRequest {
                 circuit: square_circuit(),
+                witness: vec!["6".to_owned(), "36".to_owned()],
+                proofs_verified: 0,
             })
             .unwrap();
         let proof = backend
@@ -642,6 +748,8 @@ mod tests {
         let compiled = backend
             .compile_circuit(CompileCircuitRequest {
                 circuit: square_circuit(),
+                witness: vec!["6".to_owned(), "36".to_owned()],
+                proofs_verified: 1,
             })
             .unwrap();
         let base = backend
@@ -709,6 +817,8 @@ mod tests {
                 let compiled = backend
                     .compile_circuit(CompileCircuitRequest {
                         circuit: square_circuit(),
+                        witness: vec!["6".to_owned(), "36".to_owned()],
+                        proofs_verified: 2,
                     })
                     .unwrap();
                 let first = backend

@@ -123,6 +123,18 @@ step, and returns the plural accumulator/challenge metadata consumed by
 `verifyRecursiveProof`. The current N2 slice requires two compatible base
 handles and does not retain the N2 result for another recursive cycle.
 
+`compileCircuit` now receives the recorded witness shape and
+`proofsVerified` arity and eagerly compiles every index needed by that branch.
+`compileProgram` batches all ZkProgram branches into one atomic request and
+removes already-created branch resources if any later branch fails.
+Base compilation is independent of whether the placeholder witness satisfies
+the application constraints, matching `ZkProgram.compile()`. For N1, both the
+base-to-recursive transition and the stable recursive-to-recursive Step/Wrap
+index pairs are built during compilation; proving no longer falls back to the
+old compile-on-prove helper. N2 likewise stores reusable Step and Wrap indexes.
+The same versioned request is consumed unchanged by `mina-runtime-napi` and
+`mina-runtime-wasm`.
+
 Milestone 3 is implemented in `mina-runtime-napi`. The NAPI layer is deliberately
 thin: it owns no protocol types and forwards the exact v1 JSON contract to the
 core adapter. Lightweight requests can run synchronously, while proving,

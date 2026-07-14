@@ -38,6 +38,8 @@ pub struct BackendInfo {
 #[serde(rename_all = "camelCase")]
 pub struct CompileCircuitRequest {
     pub circuit: RecordedCircuit,
+    pub witness: Vec<String>,
+    pub proofs_verified: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +49,18 @@ pub struct CompileCircuitResponse {
     pub circuit_digest: String,
     pub witness_size: u32,
     pub public_output_size: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileProgramRequest {
+    pub branches: Vec<CompileCircuitRequest>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileProgramResponse {
+    pub branches: Vec<CompileCircuitResponse>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -216,6 +230,7 @@ pub struct SignedTransactionResponse {
 pub enum BackendRequest {
     GetInfo,
     CompileCircuit(CompileCircuitRequest),
+    CompileProgram(CompileProgramRequest),
     ProveCircuit(ProveCircuitRequest),
     ProveCircuitKeep(ProveCircuitRequest),
     ProveCircuitN1Over(ProveCircuitN1OverRequest),
@@ -237,6 +252,7 @@ pub enum BackendRequest {
 pub enum BackendResponse {
     Info(BackendInfo),
     CircuitCompiled(CompileCircuitResponse),
+    ProgramCompiled(CompileProgramResponse),
     ProofCreated(ProofResponse),
     ProofKept(KeptProofResponse),
     RecursiveProofCreated(RecursiveProofResponse),
