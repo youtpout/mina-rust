@@ -66,6 +66,15 @@ pub struct ProveCircuitN1OverRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProveCircuitN2OverRequest {
+    pub circuit_id: ResourceId,
+    pub first_proof_id: ResourceId,
+    pub second_proof_id: ResourceId,
+    pub witness: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProofResponse {
     pub app_state: Vec<String>,
     pub proof: O1jsWrapProofJson,
@@ -87,6 +96,16 @@ pub struct RecursiveProofResponse {
     pub proof: O1jsWrapProofJson,
     pub challenge_polynomial_commitment: (String, String),
     pub old_bulletproof_challenges: Vec<String>,
+    pub dlog_plonk_index: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecursiveN2ProofResponse {
+    pub app_state: Vec<String>,
+    pub proof: O1jsWrapProofJson,
+    pub challenge_polynomial_commitments: Vec<(String, String)>,
+    pub old_bulletproof_challenges: Vec<Vec<String>>,
     pub dlog_plonk_index: Vec<(String, String)>,
 }
 
@@ -200,6 +219,7 @@ pub enum BackendRequest {
     ProveCircuit(ProveCircuitRequest),
     ProveCircuitKeep(ProveCircuitRequest),
     ProveCircuitN1Over(ProveCircuitN1OverRequest),
+    ProveCircuitN2Over(ProveCircuitN2OverRequest),
     VerifyProof(VerifyProofRequest),
     VerifyRecursiveProof(VerifyRecursiveProofRequest),
     CreateLedger(CreateLedgerRequest),
@@ -220,6 +240,7 @@ pub enum BackendResponse {
     ProofCreated(ProofResponse),
     ProofKept(KeptProofResponse),
     RecursiveProofCreated(RecursiveProofResponse),
+    RecursiveN2ProofCreated(RecursiveN2ProofResponse),
     ProofVerified(VerifyProofResponse),
     LedgerCreated(LedgerResponse),
     LedgerRoot(LedgerRootResponse),

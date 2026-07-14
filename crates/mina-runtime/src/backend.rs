@@ -7,7 +7,7 @@ use pickles::{
     api::MinaWrapProof,
     recorded::{
         prove_recorded_base_case, prove_recorded_base_case_keep, prove_recorded_n1_over_keep,
-        RecordedCircuit, RecordedProofHandle,
+        prove_recorded_n2_over_base_handles, RecordedCircuit, RecordedProofHandle,
     },
     verify::{verify_side_loaded_base_case, verify_side_loaded_with_step_vk},
 };
@@ -95,6 +95,7 @@ impl Backend {
                 "pickles-base-proof-v1",
                 "pickles-kept-base-proof-v1",
                 "pickles-recursive-n1-v1",
+                "pickles-recursive-n2-v1",
             ]
             .into_iter()
             .map(str::to_owned)
@@ -263,6 +264,46 @@ impl Backend {
         )
     }
 
+    pub fn prove_circuit_n2_over(
+        &self,
+        request: ProveCircuitN2OverRequest,
+    ) -> Result<RecursiveN2ProofResponse, BackendError> {
+        let circuit = self.circuits.with(request.circuit_id, Clone::clone)?;
+        let witness = parse_fields(&request.witness)?;
+        let proved = self
+            .proofs
+            .with_two(
+                request.first_proof_id,
+                request.second_proof_id,
+                |first, second| {
+                    catch_unwind(AssertUnwindSafe(|| {
+                        prove_recorded_n2_over_base_handles(first, second, circuit, witness)
+                    }))
+                },
+            )?
+            .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
+            .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        Ok(RecursiveN2ProofResponse {
+            app_state: fields_to_strings(&proved.app_state),
+            proof: proved.proof.to_o1js_json_value(),
+            challenge_polynomial_commitments: proved
+                .challenge_polynomial_commitments
+                .into_iter()
+                .map(point_to_strings)
+                .collect(),
+            old_bulletproof_challenges: proved
+                .old_bulletproof_challenges
+                .iter()
+                .map(|values| fields_to_strings(values))
+                .collect(),
+            dlog_plonk_index: proved
+                .dlog_plonk_index
+                .into_iter()
+                .map(point_to_strings)
+                .collect(),
+        })
+    }
+
     pub fn create_ledger(
         &self,
         request: CreateLedgerRequest,
@@ -369,6 +410,9 @@ impl Backend {
             }
             BackendRequest::ProveCircuitN1Over(request) => {
                 BackendResponse::RecursiveProofCreated(self.prove_circuit_n1_over(request)?)
+            }
+            BackendRequest::ProveCircuitN2Over(request) => {
+                BackendResponse::RecursiveN2ProofCreated(self.prove_circuit_n2_over(request)?)
             }
             BackendRequest::VerifyProof(request) => {
                 BackendResponse::ProofVerified(self.verify_proof(request)?)
@@ -653,6 +697,58 @@ mod tests {
             backend.proofs.remove(base.proof_id),
             Err(ResourceError::NotFound { .. })
         ));
+    }
+
+    #[test]
+    fn two_retained_base_proofs_drive_and_verify_a_recursive_n2_step() {
+        std::thread::Builder::new()
+            .name("mina-runtime-n2".to_owned())
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                let backend = Backend::default();
+                let compiled = backend
+                    .compile_circuit(CompileCircuitRequest {
+                        circuit: square_circuit(),
+                    })
+                    .unwrap();
+                let first = backend
+                    .prove_circuit_keep(ProveCircuitRequest {
+                        circuit_id: compiled.circuit_id,
+                        witness: vec!["3".to_owned(), "9".to_owned()],
+                    })
+                    .unwrap();
+                let second = backend
+                    .prove_circuit_keep(ProveCircuitRequest {
+                        circuit_id: compiled.circuit_id,
+                        witness: vec!["4".to_owned(), "16".to_owned()],
+                    })
+                    .unwrap();
+                let recursive = backend
+                    .prove_circuit_n2_over(ProveCircuitN2OverRequest {
+                        circuit_id: compiled.circuit_id,
+                        first_proof_id: first.proof_id,
+                        second_proof_id: second.proof_id,
+                        witness: vec!["5".to_owned(), "25".to_owned()],
+                    })
+                    .unwrap();
+                assert_eq!(recursive.app_state, ["25"]);
+                assert!(
+                    backend
+                        .verify_recursive_proof(VerifyRecursiveProofRequest {
+                            app_state: recursive.app_state,
+                            proof: recursive.proof,
+                            challenge_polynomial_commitments: recursive
+                                .challenge_polynomial_commitments,
+                            old_bulletproof_challenges: recursive.old_bulletproof_challenges,
+                            dlog_plonk_index: recursive.dlog_plonk_index,
+                        })
+                        .unwrap()
+                        .valid
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]

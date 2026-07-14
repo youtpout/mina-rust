@@ -117,6 +117,12 @@ verification with real Pickles proofs. A serialized proof remains verifiable,
 but extending a chain after process loss is not supported until the retained
 handle has a stable import/export format.
 
+The v1 contract also exposes `proveCircuitN2Over`: it borrows two retained base
+proofs atomically, executes the new recorded application inside a real width-2
+step, and returns the plural accumulator/challenge metadata consumed by
+`verifyRecursiveProof`. The current N2 slice requires two compatible base
+handles and does not retain the N2 result for another recursive cycle.
+
 Milestone 3 is implemented in `mina-runtime-napi`. The NAPI layer is deliberately
 thin: it owns no protocol types and forwards the exact v1 JSON contract to the
 core adapter. Lightweight requests can run synchronously, while proving,

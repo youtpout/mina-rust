@@ -98,6 +98,22 @@ impl<T> ResourceStore<T> {
         Ok(f(value))
     }
 
+    pub fn with_two<R>(
+        &self,
+        first_id: ResourceId,
+        second_id: ResourceId,
+        f: impl FnOnce(&T, &T) -> R,
+    ) -> Result<R, ResourceError> {
+        let values = self.values.read().map_err(|_| ResourceError::Poisoned)?;
+        let first = values
+            .get(&first_id)
+            .ok_or(ResourceError::NotFound { id: first_id.get() })?;
+        let second = values.get(&second_id).ok_or(ResourceError::NotFound {
+            id: second_id.get(),
+        })?;
+        Ok(f(first, second))
+    }
+
     pub fn remove(&self, id: ResourceId) -> Result<T, ResourceError> {
         self.values
             .write()
