@@ -186,18 +186,31 @@ impl Backend {
         &self,
         request: CompileProgramRequest,
     ) -> Result<CompileProgramResponse, BackendError> {
-        let mut branches = Vec::with_capacity(request.branches.len());
-        for branch in request.branches {
-            match self.compile_circuit(branch) {
-                Ok(compiled) => branches.push(compiled),
-                Err(error) => {
-                    for compiled in branches {
+        // Branch compilations are independent (each produces its own circuit
+        // resource), so run them in parallel; only the response order must
+        // match the request order.
+        use rayon::prelude::*;
+        let results: Vec<Result<CompileCircuitResponse, BackendError>> = request
+            .branches
+            .into_par_iter()
+            .map(|branch| self.compile_circuit(branch))
+            .collect();
+        if results.iter().any(|result| result.is_err()) {
+            let mut error = None;
+            for result in results {
+                match result {
+                    Ok(compiled) => {
                         let _ = self.circuits.remove(compiled.circuit_id);
                     }
-                    return Err(error);
+                    Err(err) => error = error.or(Some(err)),
                 }
             }
+            return Err(error.unwrap_or_else(|| unreachable!("an error was detected above")));
         }
+        let branches = results
+            .into_iter()
+            .map(|result| result.unwrap_or_else(|_| unreachable!("errors handled above")))
+            .collect();
         Ok(CompileProgramResponse { branches })
     }
 
