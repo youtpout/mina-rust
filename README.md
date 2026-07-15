@@ -76,6 +76,13 @@ functionality here.
 - [p2p-messages](crates/p2p-messages) - P2P message definitions
 - [snark](crates/snark) - SNARK/Proof verification
 - [vrf](crates/vrf) - Verifiable Random Function implementation
+- [mina-runtime](crates/mina-runtime) - High-level o1js proving adapter over the
+  [proof-systems](https://github.com/youtpout/proof-systems) `pickle-rs` Rust
+  backend (JSON request/response wire protocol consumed by o1js)
+- [mina-runtime-napi](crates/mina-runtime-napi) - Node N-API wrapper exposing
+  `mina-runtime` as a `MinaRuntime` binding for o1js
+- [mina-runtime-wasm](crates/mina-runtime-wasm) - WebAssembly wrapper exposing
+  the same adapter to the browser
 
 ### tools/
 
@@ -107,6 +114,62 @@ Third-party libraries with local modifications. Add vendored dependencies here.
   [#1215](https://github.com/o1-labs/mina-rust/issues/1215))
 
 **[Learn more about the architecture →](https://o1-labs.github.io/mina-rust/docs/developers/getting-started)**
+
+## Building the o1js proof-system adapter
+
+This fork adds the `mina-runtime` crates, which form the middle layer of the
+pure-Rust o1js proving stack:
+
+```text
+o1js  ->  mina-runtime (this repo)  ->  proof-systems (pickle-rs)
+```
+
+`mina-runtime` depends on the Rust recursion crates (`pickles`, `snarky`,
+`kimchi`, …) from
+[proof-systems](https://github.com/youtpout/proof-systems) on the `pickle-rs`
+branch, as declared in the workspace [`Cargo.toml`](Cargo.toml).
+
+### Toolchain
+
+The workspace pins stable Rust `1.92` in
+[`rust-toolchain.toml`](rust-toolchain.toml); `rustup` selects it
+automatically. The WebAssembly build additionally needs the nightly toolchain
+and the `wasm32-unknown-unknown` target (`make setup-wasm` installs both).
+
+### Node adapter (`mina-runtime-napi`)
+
+Build the N-API addon that o1js loads at runtime. `napi` emits a `.node` addon
+into the output directory (its exact filename depends on the napi config, e.g.
+`index.node`); o1js references that file through the `O1JS_MINA_RUNTIME_PATH`
+environment variable:
+
+```sh
+# from the repository root; napi is available via `npx` or a global install
+napi build --manifest-path Cargo.toml --package mina-runtime-napi \
+  --output-dir target/napi --release
+```
+
+Smoke-test the resulting addon by passing its path to the bundled script:
+
+```sh
+node crates/mina-runtime-napi/smoke.mjs target/napi/<addon>.node
+```
+
+A plain `cargo build -p mina-runtime-napi --release` also compiles the crate
+(producing a raw `cdylib` under `target/release/`); use `napi build` when you
+need the ready-to-load `.node` package.
+
+### Browser adapter (`mina-runtime-wasm`)
+
+```sh
+cargo build -p mina-runtime-wasm --release --target wasm32-unknown-unknown
+wasm-bindgen --web \
+  target/wasm32-unknown-unknown/release/mina_runtime_wasm.wasm \
+  --out-dir pkg/mina-runtime-wasm
+```
+
+See the "Building the Rust proof-system backend" section of the o1js
+`README-dev.md` for how the produced bindings are wired into o1js.
 
 ## Community & Support
 
