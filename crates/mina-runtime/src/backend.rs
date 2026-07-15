@@ -133,11 +133,14 @@ impl Backend {
         if request.proofs_verified > 2 {
             return Err(BackendError::Circuit("proofsVerified must be 0, 1 or 2".to_owned()));
         }
+        // Compile-time template: a proof-SHAPED donor assembled from the
+        // compiled indexes — no prover runs during compilation (the donor is
+        // proven index-equivalent to a real base proof in pickles).
         let template = (request.proofs_verified > 0)
             .then(|| {
-                catch_unwind(AssertUnwindSafe(|| base.prove_keep(witness.clone())))
+                catch_unwind(AssertUnwindSafe(|| base.donor_handle(&witness)))
                     .map_err(|_| {
-                        BackendError::Proving("the Pickles bootstrap prover panicked".to_owned())
+                        BackendError::Proving("the Pickles template donor panicked".to_owned())
                     })?
                     .map_err(|error| BackendError::Proving(format!("{error:?}")))
             })
