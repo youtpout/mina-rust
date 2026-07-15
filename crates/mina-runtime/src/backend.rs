@@ -172,6 +172,12 @@ impl Backend {
                 .map_err(|error| BackendError::Proving(format!("{error:?}")))
             })
             .transpose()?;
+        let (verification_key_base64, verification_key_hash) = match base
+            .verification_key_envelope()
+        {
+            Ok((base64, hash)) => (Some(base64), Some(hash)),
+            Err(_) => (None, None),
+        };
         let circuit_id = self.circuits.insert(CompiledCircuitResource {
             base: Mutex::new(base),
             n1: n1.map(Mutex::new),
@@ -182,6 +188,8 @@ impl Backend {
             circuit_digest: digest,
             witness_size,
             public_output_size,
+            verification_key_base64,
+            verification_key_hash,
         })
     }
 

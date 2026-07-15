@@ -49,6 +49,13 @@ pub struct CompileCircuitResponse {
     pub circuit_digest: String,
     pub witness_size: u32,
     pub public_output_size: usize,
+    /// Canonical Mina side-loaded VK (bin_prot bytes, base64) — the same
+    /// `verificationKey.data` jsoo's `Program.compile()` returns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_key_base64: Option<String>,
+    /// Mina account-level hash of the side-loaded VK (decimal field string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_key_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
