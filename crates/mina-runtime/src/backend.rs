@@ -287,6 +287,33 @@ impl Backend {
         &self,
         request: CompileProgramRequest,
     ) -> Result<CompileProgramResponse, BackendError> {
+        // Programs without recursion keep the per-branch width-0 path (its
+        // wrap is already bit-identical to jsoo's canonical VK).
+        if request.branches.iter().all(|branch| branch.proofs_verified == 0) {
+            use rayon::prelude::*;
+            let results: Vec<Result<CompileCircuitResponse, BackendError>> = request
+                .branches
+                .into_par_iter()
+                .map(|branch| self.compile_circuit(branch))
+                .collect();
+            if results.iter().any(|result| result.is_err()) {
+                let mut error = None;
+                for result in results {
+                    match result {
+                        Ok(compiled) => {
+                            let _ = self.circuits.remove(compiled.circuit_id);
+                        }
+                        Err(err) => error = error.or(Some(err)),
+                    }
+                }
+                return Err(error.unwrap_or_else(|| unreachable!("an error was detected above")));
+            }
+            let branches = results
+                .into_iter()
+                .map(|result| result.unwrap_or_else(|_| unreachable!("errors handled above")))
+                .collect();
+            return Ok(CompileProgramResponse { branches });
+        }
         // OCaml `Pickles.compile` shape: ONE shared wrap circuit and
         // verification key for the whole program, one step circuit per
         // branch at its natural domain.
