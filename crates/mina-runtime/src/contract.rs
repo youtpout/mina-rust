@@ -248,6 +248,36 @@ pub struct SignedTransactionResponse {
     pub binprot_base64: String,
 }
 
+/// Seeds the in-process SRS or Lagrange-basis cache from an o1js `Cache`
+/// entry payload (jsoo JSON format, base64 on the wire). `domain_log2`
+/// absent seeds the SRS itself; present seeds a Lagrange basis.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeedSrsCacheRequest {
+    pub curve: String,
+    pub payload_base64: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_log2: Option<u32>,
+}
+
+/// Exports the in-process SRS (`domain_log2` absent) or a Lagrange basis
+/// (`domain_log2` present) as an o1js `Cache` entry payload.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSrsCacheRequest {
+    pub curve: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_log2: Option<u32>,
+}
+
+/// The exported jsoo payload, base64 on the wire; `None` when the SRS or
+/// basis has not been materialized in this process yet.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SrsCachePayloadResponse {
+    pub payload_base64: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "operation", content = "input", rename_all = "camelCase")]
 pub enum BackendRequest {
@@ -255,6 +285,8 @@ pub enum BackendRequest {
     CompileCircuit(CompileCircuitRequest),
     CompileProgram(CompileProgramRequest),
     ProgramCacheKey(CompileProgramRequest),
+    SeedSrsCache(SeedSrsCacheRequest),
+    ExportSrsCache(ExportSrsCacheRequest),
     ProveCircuit(ProveCircuitRequest),
     ProveCircuitKeep(ProveCircuitRequest),
     ProveCircuitN1Over(ProveCircuitN1OverRequest),
@@ -278,6 +310,8 @@ pub enum BackendResponse {
     CircuitCompiled(CompileCircuitResponse),
     ProgramCompiled(CompileProgramResponse),
     ProgramCacheKey(String),
+    SrsCacheSeeded(bool),
+    SrsCachePayload(SrsCachePayloadResponse),
     ProofCreated(ProofResponse),
     ProofKept(KeptProofResponse),
     RecursiveProofCreated(RecursiveProofResponse),

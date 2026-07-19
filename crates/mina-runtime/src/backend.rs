@@ -173,6 +173,11 @@ impl Default for Backend {
 
 impl Backend {
     pub fn new(config: BackendConfig) -> Self {
+        // SRS/Lagrange persistence is driven by the o1js host through its
+        // `Cache` object (seed/export ops below), gated exactly like jsoo's
+        // (`Cache.None`, `canWrite`). The crate-internal disk cache would be
+        // an un-gated side channel — keep it off in the embedded runtime.
+        pickles::common::set_disk_cache_enabled(false);
         Self {
             circuits: ResourceStore::new(config.max_resources),
             proofs: ResourceStore::new(config.max_resources),
@@ -194,6 +199,7 @@ impl Backend {
                 "pickles-kept-base-proof-v1",
                 "pickles-recursive-n1-v1",
                 "pickles-recursive-n2-v1",
+                "srs-cache-v1",
             ]
             .into_iter()
             .map(str::to_owned)
@@ -421,6 +427,46 @@ impl Backend {
             cache_bytes_base64,
             restored_from_cache,
         })
+    }
+
+    /// Seeds the in-process SRS or a Lagrange basis from an o1js `Cache`
+    /// entry payload (jsoo JSON, base64 on the wire). Returns whether the
+    /// payload was accepted; a malformed payload just means recomputation.
+    pub fn seed_srs_cache(request: SeedSrsCacheRequest) -> Result<bool, BackendError> {
+        use base64::prelude::*;
+        let bytes = BASE64_STANDARD
+            .decode(&request.payload_base64)
+            .map_err(|error| BackendError::Serialization(format!("srs payload: {error}")))?;
+        Ok(match request.domain_log2 {
+            Some(domain_log2) => {
+                pickles::common::seed_lagrange_basis_jsoo(&request.curve, domain_log2, &bytes)
+            }
+            None => match request.curve.as_str() {
+                "vesta" => pickles::common::seed_tick_srs_jsoo(&bytes),
+                "pallas" => pickles::common::seed_tock_srs_jsoo(&bytes),
+                _ => false,
+            },
+        })
+    }
+
+    /// Exports the in-process SRS or a Lagrange basis as an o1js `Cache`
+    /// entry payload (jsoo JSON, base64 on the wire); `None` when not (yet)
+    /// materialized in this process.
+    pub fn export_srs_cache(request: ExportSrsCacheRequest) -> SrsCachePayloadResponse {
+        use base64::prelude::*;
+        let payload = match request.domain_log2 {
+            Some(domain_log2) => {
+                pickles::common::export_lagrange_basis_jsoo(&request.curve, domain_log2)
+            }
+            None => match request.curve.as_str() {
+                "vesta" => pickles::common::export_tick_srs_jsoo(),
+                "pallas" => pickles::common::export_tock_srs_jsoo(),
+                _ => None,
+            },
+        };
+        SrsCachePayloadResponse {
+            payload_base64: payload.map(|bytes| BASE64_STANDARD.encode(bytes)),
+        }
     }
 
     pub fn program_cache_key(
@@ -772,6 +818,12 @@ impl Backend {
             }
             BackendRequest::ProgramCacheKey(request) => {
                 BackendResponse::ProgramCacheKey(self.program_cache_key(request)?)
+            }
+            BackendRequest::SeedSrsCache(request) => {
+                BackendResponse::SrsCacheSeeded(Self::seed_srs_cache(request)?)
+            }
+            BackendRequest::ExportSrsCache(request) => {
+                BackendResponse::SrsCachePayload(Self::export_srs_cache(request))
             }
             BackendRequest::CompileProgram(request) => {
                 BackendResponse::ProgramCompiled(self.compile_program(request)?)
