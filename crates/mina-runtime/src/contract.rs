@@ -62,12 +62,28 @@ pub struct CompileCircuitResponse {
 #[serde(rename_all = "camelCase")]
 pub struct CompileProgramRequest {
     pub branches: Vec<CompileCircuitRequest>,
+    /// A prover-key cache payload (base64) to restore from instead of
+    /// compiling; a stale or corrupt payload silently falls back to a full
+    /// compile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_bytes_base64: Option<String>,
+    /// When set, the response carries the program's prover-key cache
+    /// payload for the caller to persist.
+    #[serde(default)]
+    pub want_cache_bytes: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileProgramResponse {
     pub branches: Vec<CompileCircuitResponse>,
+    /// The prover-key cache payload (base64), when requested and freshly
+    /// compiled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_bytes_base64: Option<String>,
+    /// Whether this program was restored from the supplied cache payload.
+    #[serde(default)]
+    pub restored_from_cache: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -238,6 +254,7 @@ pub enum BackendRequest {
     GetInfo,
     CompileCircuit(CompileCircuitRequest),
     CompileProgram(CompileProgramRequest),
+    ProgramCacheKey(CompileProgramRequest),
     ProveCircuit(ProveCircuitRequest),
     ProveCircuitKeep(ProveCircuitRequest),
     ProveCircuitN1Over(ProveCircuitN1OverRequest),
@@ -260,6 +277,7 @@ pub enum BackendResponse {
     Info(BackendInfo),
     CircuitCompiled(CompileCircuitResponse),
     ProgramCompiled(CompileProgramResponse),
+    ProgramCacheKey(String),
     ProofCreated(ProofResponse),
     ProofKept(KeptProofResponse),
     RecursiveProofCreated(RecursiveProofResponse),

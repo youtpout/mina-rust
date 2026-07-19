@@ -312,7 +312,11 @@ impl Backend {
                 .into_iter()
                 .map(|result| result.unwrap_or_else(|_| unreachable!("errors handled above")))
                 .collect();
-            return Ok(CompileProgramResponse { branches });
+            return Ok(CompileProgramResponse {
+                branches,
+                cache_bytes_base64: None,
+                restored_from_cache: false,
+            });
         }
         // OCaml `Pickles.compile` shape: ONE shared wrap circuit and
         // verification key for the whole program, one step circuit per
@@ -342,11 +346,41 @@ impl Backend {
                 proofs_verified: branch.proofs_verified,
             });
         }
+        // Prover-key cache: try the supplied payload first (stale entries
+        // fall back to a full compile), and emit a fresh payload on request.
+        let cached_payload = request
+            .cache_bytes_base64
+            .as_deref()
+            .and_then(|encoded| {
+                use base64::prelude::*;
+                BASE64_STANDARD.decode(encoded).ok()
+            });
+        let mut restored_from_cache = false;
         let program = catch_unwind(AssertUnwindSafe(|| {
-            RecordedCompiledProgram::compile(program_branches)
+            if let Some(bytes) = &cached_payload {
+                if let Ok(program) =
+                    RecordedCompiledProgram::from_cache_bytes(program_branches.clone(), bytes)
+                {
+                    return Ok((program, true));
+                }
+            }
+            RecordedCompiledProgram::compile(program_branches).map(|program| (program, false))
         }))
         .map_err(|_| BackendError::Proving("the Pickles program compiler panicked".to_owned()))?
+        .map(|(program, restored)| {
+            restored_from_cache = restored;
+            program
+        })
         .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        let cache_bytes_base64 = if request.want_cache_bytes && !restored_from_cache {
+            use base64::prelude::*;
+            program
+                .to_cache_bytes()
+                .ok()
+                .map(|bytes| BASE64_STANDARD.encode(bytes))
+        } else {
+            None
+        };
         let (verification_key_base64, verification_key_hash) =
             match program.verification_key_envelope() {
                 Ok((base64, hash)) => (Some(base64), Some(hash)),
@@ -382,7 +416,26 @@ impl Backend {
                 }
             }
         }
-        Ok(CompileProgramResponse { branches })
+        Ok(CompileProgramResponse {
+            branches,
+            cache_bytes_base64,
+            restored_from_cache,
+        })
+    }
+
+    pub fn program_cache_key(
+        &self,
+        request: CompileProgramRequest,
+    ) -> Result<String, BackendError> {
+        let mut program_branches = Vec::with_capacity(request.branches.len());
+        for branch in &request.branches {
+            program_branches.push(RecordedProgramBranch {
+                circuit: branch.circuit.clone(),
+                witness: parse_fields(&branch.witness)?,
+                proofs_verified: branch.proofs_verified,
+            });
+        }
+        Ok(RecordedCompiledProgram::cache_key(&program_branches))
     }
 
     pub fn prove_circuit(
@@ -716,6 +769,9 @@ impl Backend {
             BackendRequest::GetInfo => BackendResponse::Info(self.info()),
             BackendRequest::CompileCircuit(request) => {
                 BackendResponse::CircuitCompiled(self.compile_circuit(request)?)
+            }
+            BackendRequest::ProgramCacheKey(request) => {
+                BackendResponse::ProgramCacheKey(self.program_cache_key(request)?)
             }
             BackendRequest::CompileProgram(request) => {
                 BackendResponse::ProgramCompiled(self.compile_program(request)?)
