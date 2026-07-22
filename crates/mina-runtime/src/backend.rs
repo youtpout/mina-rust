@@ -18,7 +18,9 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    contract::*, transaction::sign_transaction, BackendConfig, ResourceError, ResourceStore,
+    contract::*,
+    transaction::{sign_transaction, sign_zkapp_command},
+    BackendConfig, ResourceError, ResourceStore,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -194,6 +196,7 @@ impl Backend {
             capabilities: [
                 "ledger-v1",
                 "mina-signed-command-v2",
+                "mina-zkapp-command-signature-v1",
                 "recorded-circuit-v1",
                 "pickles-base-proof-v1",
                 "pickles-kept-base-proof-v1",
@@ -861,6 +864,9 @@ impl Backend {
             BackendRequest::SignTransaction(request) => {
                 BackendResponse::TransactionSigned(sign_transaction(request)?)
             }
+            BackendRequest::SignZkappCommand(request) => {
+                BackendResponse::ZkappCommandSigned(sign_zkapp_command(request)?)
+            }
             BackendRequest::DropCircuit { circuit_id } => {
                 self.circuits.remove(circuit_id)?;
                 BackendResponse::ResourceDropped
@@ -958,6 +964,8 @@ mod tests {
                 v: LinComb::var(0),
                 square: LinComb::var(1),
             }],
+            previous_state_slots: Vec::new(),
+            previous_proof_widths: Vec::new(),
         }
     }
 

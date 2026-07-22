@@ -1,5 +1,8 @@
 use ledger::Account;
-use mina_p2p_messages::v2::{MinaBaseSignedCommandPayloadStableV2, MinaBaseSignedCommandStableV2};
+use mina_p2p_messages::v2::{
+    MinaBaseSignedCommandPayloadStableV2, MinaBaseSignedCommandStableV2,
+    MinaBaseZkappCommandTStableV1WireStableV1,
+};
 use pickles::{api::O1jsWrapProofJson, recorded::RecordedCircuit};
 use serde::{Deserialize, Serialize};
 
@@ -248,6 +251,23 @@ pub struct SignedTransactionResponse {
     pub binprot_base64: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignZkappCommandRequest {
+    pub private_key: String,
+    pub network: NetworkId,
+    pub command: MinaBaseZkappCommandTStableV1WireStableV1,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedZkappCommandResponse {
+    pub command: MinaBaseZkappCommandTStableV1WireStableV1,
+    pub binprot_base64: String,
+    pub signer_public_key: String,
+    pub signed_account_updates: usize,
+}
+
 /// Seeds the in-process SRS or Lagrange-basis cache from an o1js `Cache`
 /// entry payload (jsoo JSON format, base64 on the wire). `domain_log2`
 /// absent seeds the SRS itself; present seeds a Lagrange basis.
@@ -298,6 +318,7 @@ pub enum BackendRequest {
     LedgerGetAccount(LedgerGetAccountRequest),
     LedgerSetAccount(LedgerSetAccountRequest),
     SignTransaction(SignTransactionRequest),
+    SignZkappCommand(SignZkappCommandRequest),
     DropCircuit { circuit_id: ResourceId },
     DropProof { proof_id: ResourceId },
     DropLedger { ledger_id: ResourceId },
@@ -322,6 +343,7 @@ pub enum BackendResponse {
     LedgerAccount(LedgerAccountResponse),
     LedgerAccountSet(LedgerRootResponse),
     TransactionSigned(SignedTransactionResponse),
+    ZkappCommandSigned(SignedZkappCommandResponse),
     ResourceDropped,
 }
 
