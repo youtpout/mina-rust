@@ -14,8 +14,8 @@ mina-p2p-messages = { workspace = true }
 mina-signer = { workspace = true }
 mina-snark = { workspace = true }
 pickles = { workspace = true }
-serde = { workspace = true }
 rayon.workspace = true
+serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 snarky = { workspace = true }

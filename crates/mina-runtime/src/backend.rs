@@ -9,13 +9,13 @@ use mina_signer::CompressedPubKey;
 use pickles::{
     api::MinaWrapProof,
     recorded::{
-        RecordedCompiledBase, RecordedCompiledN1, RecordedCompiledN2, RecordedCompiledProgram,
-        RecordedProgramBranch, RecordedProofHandle,
+        RecordedCompiledBase, RecordedCompiledBaseProgram, RecordedCompiledN1, RecordedCompiledN2,
+        RecordedCompiledProgram, RecordedProgramBranch, RecordedProofHandle,
     },
     verify::{verify_side_loaded_base_case, verify_side_loaded_with_step_vk},
 };
-use std::sync::Arc;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 use crate::{
     contract::*,
@@ -81,6 +81,12 @@ enum CompiledCircuitResource {
         branch_index: usize,
         proofs_verified: u8,
     },
+    /// One branch of a non-recursive SmartContract program. All methods use
+    /// the same canonical width-0 wrap and side-loaded verification key.
+    BaseProgramBranch {
+        program: Arc<Mutex<RecordedCompiledBaseProgram>>,
+        branch_index: usize,
+    },
 }
 
 /// Proves a base (`proofs_verified == 0`) circuit or program branch.
@@ -110,6 +116,14 @@ fn prove_base_handle(
                 .prove_n0(*branch_index, witness)
                 .map_err(|error| BackendError::Proving(format!("{error:?}")))
         }
+        CompiledCircuitResource::BaseProgramBranch {
+            program,
+            branch_index,
+        } => program
+            .lock()
+            .map_err(|_| BackendError::Proving("compiled base program lock poisoned".to_owned()))?
+            .prove_keep(*branch_index, witness)
+            .map_err(|error| BackendError::Proving(format!("{error:?}"))),
     }
 }
 
@@ -230,7 +244,9 @@ impl Backend {
         .map_err(|_| BackendError::Proving("the Pickles compiler panicked".to_owned()))?
         .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
         if request.proofs_verified > 2 {
-            return Err(BackendError::Circuit("proofsVerified must be 0, 1 or 2".to_owned()));
+            return Err(BackendError::Circuit(
+                "proofsVerified must be 0, 1 or 2".to_owned(),
+            ));
         }
         // Compile-time template: a proof-SHAPED donor assembled from the
         // compiled indexes — no prover runs during compilation (the donor is
@@ -253,7 +269,9 @@ impl Backend {
                         parse_fields(&request.witness).expect("witness was validated"),
                     )
                 }))
-                .map_err(|_| BackendError::Proving("the Pickles recursive compiler panicked".to_owned()))?
+                .map_err(|_| {
+                    BackendError::Proving("the Pickles recursive compiler panicked".to_owned())
+                })?
                 .map_err(|error| BackendError::Proving(format!("{error:?}")))
             })
             .transpose()?;
@@ -271,12 +289,11 @@ impl Backend {
                 .map_err(|error| BackendError::Proving(format!("{error:?}")))
             })
             .transpose()?;
-        let (verification_key_base64, verification_key_hash) = match base
-            .verification_key_envelope()
-        {
-            Ok((base64, hash)) => (Some(base64), Some(hash)),
-            Err(_) => (None, None),
-        };
+        let (verification_key_base64, verification_key_hash) =
+            match base.verification_key_envelope() {
+                Ok((base64, hash)) => (Some(base64), Some(hash)),
+                Err(_) => (None, None),
+            };
         let circuit_id = self.circuits.insert(CompiledCircuitResource::Standalone {
             base: Mutex::new(base),
             n1: n1.map(Mutex::new),
@@ -296,31 +313,75 @@ impl Backend {
         &self,
         request: CompileProgramRequest,
     ) -> Result<CompileProgramResponse, BackendError> {
-        // Programs without recursion keep the per-branch width-0 path (its
-        // wrap is already bit-identical to jsoo's canonical VK).
-        if request.branches.iter().all(|branch| branch.proofs_verified == 0) {
-            use rayon::prelude::*;
-            let results: Vec<Result<CompileCircuitResponse, BackendError>> = request
-                .branches
-                .into_par_iter()
-                .map(|branch| self.compile_circuit(branch))
-                .collect();
-            if results.iter().any(|result| result.is_err()) {
-                let mut error = None;
-                for result in results {
-                    match result {
-                        Ok(compiled) => {
-                            let _ = self.circuits.remove(compiled.circuit_id);
-                        }
-                        Err(err) => error = error.or(Some(err)),
-                    }
-                }
-                return Err(error.unwrap_or_else(|| unreachable!("an error was detected above")));
+        // A non-recursive SmartContract still has one canonical shared wrap
+        // and verification key across all methods. Compiling every method as
+        // a standalone base circuit would produce per-method keys instead.
+        if request
+            .branches
+            .iter()
+            .all(|branch| branch.proofs_verified == 0)
+        {
+            let mut program_branches = Vec::with_capacity(request.branches.len());
+            let mut branch_meta = Vec::with_capacity(request.branches.len());
+            for branch in &request.branches {
+                branch
+                    .circuit
+                    .validate()
+                    .map_err(|error| BackendError::Circuit(format!("{error:?}")))?;
+                let encoded = serde_json::to_vec(&branch.circuit)
+                    .map_err(|error| BackendError::Serialization(error.to_string()))?;
+                branch_meta.push((
+                    hex::encode(Sha256::digest(encoded)),
+                    branch.circuit.aux_count,
+                    branch.circuit.output.len(),
+                ));
+                program_branches.push(RecordedProgramBranch {
+                    circuit: branch.circuit.clone(),
+                    witness: parse_fields(&branch.witness)?,
+                    proofs_verified: 0,
+                });
             }
-            let branches = results
-                .into_iter()
-                .map(|result| result.unwrap_or_else(|_| unreachable!("errors handled above")))
-                .collect();
+            let program = catch_unwind(AssertUnwindSafe(|| {
+                RecordedCompiledBaseProgram::compile(program_branches)
+            }))
+            .map_err(|_| {
+                BackendError::Proving("the Pickles base program compiler panicked".to_owned())
+            })?
+            .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+            let (verification_key_base64, verification_key_hash) = program
+                .verification_key_envelope()
+                .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+            let program = Arc::new(Mutex::new(program));
+            let mut branches = Vec::with_capacity(branch_meta.len());
+            let mut inserted = Vec::new();
+            for (branch_index, (circuit_digest, witness_size, public_output_size)) in
+                branch_meta.into_iter().enumerate()
+            {
+                let circuit_id =
+                    match self
+                        .circuits
+                        .insert(CompiledCircuitResource::BaseProgramBranch {
+                            program: Arc::clone(&program),
+                            branch_index,
+                        }) {
+                        Ok(circuit_id) => circuit_id,
+                        Err(error) => {
+                            for circuit_id in inserted {
+                                let _ = self.circuits.remove(circuit_id);
+                            }
+                            return Err(error.into());
+                        }
+                    };
+                inserted.push(circuit_id);
+                branches.push(CompileCircuitResponse {
+                    circuit_id,
+                    circuit_digest,
+                    witness_size,
+                    public_output_size,
+                    verification_key_base64: Some(verification_key_base64.clone()),
+                    verification_key_hash: Some(verification_key_hash.clone()),
+                });
+            }
             return Ok(CompileProgramResponse {
                 branches,
                 cache_bytes_base64: None,
@@ -357,13 +418,10 @@ impl Backend {
         }
         // Prover-key cache: try the supplied payload first (stale entries
         // fall back to a full compile), and emit a fresh payload on request.
-        let cached_payload = request
-            .cache_bytes_base64
-            .as_deref()
-            .and_then(|encoded| {
-                use base64::prelude::*;
-                BASE64_STANDARD.decode(encoded).ok()
-            });
+        let cached_payload = request.cache_bytes_base64.as_deref().and_then(|encoded| {
+            use base64::prelude::*;
+            BASE64_STANDARD.decode(encoded).ok()
+        });
         let mut restored_from_cache = false;
         let program = catch_unwind(AssertUnwindSafe(|| {
             if let Some(bytes) = &cached_payload {
@@ -401,11 +459,13 @@ impl Backend {
         for (branch_index, (request_branch, (digest, witness_size, public_output_size))) in
             request.branches.iter().zip(branch_meta).enumerate()
         {
-            match self.circuits.insert(CompiledCircuitResource::ProgramBranch {
-                program: Arc::clone(&program),
-                branch_index,
-                proofs_verified: request_branch.proofs_verified,
-            }) {
+            match self
+                .circuits
+                .insert(CompiledCircuitResource::ProgramBranch {
+                    program: Arc::clone(&program),
+                    branch_index,
+                    proofs_verified: request_branch.proofs_verified,
+                }) {
                 Ok(circuit_id) => {
                     inserted.push(circuit_id);
                     branches.push(CompileCircuitResponse {
@@ -492,17 +552,18 @@ impl Backend {
         request: ProveCircuitRequest,
     ) -> Result<ProofResponse, BackendError> {
         let witness = parse_fields(&request.witness)?;
-        let (proved, transaction_proof) = self.circuits.with(request.circuit_id, |compiled| {
-            catch_unwind(AssertUnwindSafe(|| {
-                let handle = prove_base_handle(compiled, witness)?;
-                let transaction_proof = handle
-                    .to_transaction_base64()
-                    .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
-                Ok::<_, BackendError>((handle.to_recorded_proof(), transaction_proof))
-            }))
-        })?
-        .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
-        ?;
+        let (proved, transaction_proof) = self
+            .circuits
+            .with(request.circuit_id, |compiled| {
+                catch_unwind(AssertUnwindSafe(|| {
+                    let handle = prove_base_handle(compiled, witness)?;
+                    let transaction_proof = handle
+                        .to_transaction_base64()
+                        .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+                    Ok::<_, BackendError>((handle.to_recorded_proof(), transaction_proof))
+                }))
+            })?
+            .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))??;
         Ok(ProofResponse {
             app_state: fields_to_strings(&proved.app_state),
             proof: proved.proof.to_o1js_json_value(),
@@ -541,11 +602,12 @@ impl Backend {
         request: ProveCircuitRequest,
     ) -> Result<KeptProofResponse, BackendError> {
         let witness = parse_fields(&request.witness)?;
-        let handle = self.circuits.with(request.circuit_id, |compiled| {
-            catch_unwind(AssertUnwindSafe(|| prove_base_handle(compiled, witness)))
-        })?
-        .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
-        ?;
+        let handle = self
+            .circuits
+            .with(request.circuit_id, |compiled| {
+                catch_unwind(AssertUnwindSafe(|| prove_base_handle(compiled, witness)))
+            })?
+            .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))??;
         let envelope = handle.to_recorded_proof();
         let transaction_proof = handle
             .to_transaction_base64()
@@ -564,43 +626,51 @@ impl Backend {
         request: ProveCircuitN1OverRequest,
     ) -> Result<RecursiveProofResponse, BackendError> {
         let witness = parse_fields(&request.witness)?;
-        let handle = self.circuits.with(request.circuit_id, |compiled| {
-            self.proofs.with(request.previous_proof_id, |previous| {
-                catch_unwind(AssertUnwindSafe(|| match compiled {
-                    CompiledCircuitResource::Standalone { n1, .. } => n1
-                        .as_ref()
-                        .ok_or_else(|| {
-                            BackendError::Proving("circuit was not compiled as N1".to_owned())
-                        })?
-                        .lock()
-                        .map_err(|_| {
-                            BackendError::Proving("compiled N1 lock poisoned".to_owned())
-                        })?
-                        .prove_keep(previous, witness)
-                        .map_err(|error| BackendError::Proving(format!("{error:?}"))),
-                    CompiledCircuitResource::ProgramBranch {
-                        program,
-                        branch_index,
-                        proofs_verified,
-                    } => {
-                        if *proofs_verified != 1 {
-                            return Err(BackendError::Proving(
-                                "program branch does not verify exactly one proof".to_owned(),
-                            ));
-                        }
-                        program
+        let handle = self
+            .circuits
+            .with(request.circuit_id, |compiled| {
+                self.proofs.with(request.previous_proof_id, |previous| {
+                    catch_unwind(AssertUnwindSafe(|| match compiled {
+                        CompiledCircuitResource::Standalone { n1, .. } => n1
+                            .as_ref()
+                            .ok_or_else(|| {
+                                BackendError::Proving("circuit was not compiled as N1".to_owned())
+                            })?
                             .lock()
                             .map_err(|_| {
-                                BackendError::Proving("compiled program lock poisoned".to_owned())
+                                BackendError::Proving("compiled N1 lock poisoned".to_owned())
                             })?
-                            .prove_n1(*branch_index, previous, witness)
-                            .map_err(|error| BackendError::Proving(format!("{error:?}")))
-                    }
-                }))
-            })
-        })??
-            .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
-            ?;
+                            .prove_keep(previous, witness)
+                            .map_err(|error| BackendError::Proving(format!("{error:?}"))),
+                        CompiledCircuitResource::ProgramBranch {
+                            program,
+                            branch_index,
+                            proofs_verified,
+                        } => {
+                            if *proofs_verified != 1 {
+                                return Err(BackendError::Proving(
+                                    "program branch does not verify exactly one proof".to_owned(),
+                                ));
+                            }
+                            program
+                                .lock()
+                                .map_err(|_| {
+                                    BackendError::Proving(
+                                        "compiled program lock poisoned".to_owned(),
+                                    )
+                                })?
+                                .prove_n1(*branch_index, previous, witness)
+                                .map_err(|error| BackendError::Proving(format!("{error:?}")))
+                        }
+                        CompiledCircuitResource::BaseProgramBranch { .. } => {
+                            Err(BackendError::Proving(
+                                "a base program branch does not verify previous proofs".to_owned(),
+                            ))
+                        }
+                    }))
+                })
+            })??
+            .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))??;
         let proved = recursive_envelope_n1(&handle)?;
         let proof_id = self.proofs.insert(handle)?;
         Ok(RecursiveProofResponse {
@@ -665,50 +735,60 @@ impl Backend {
         request: ProveCircuitN2OverRequest,
     ) -> Result<RecursiveN2ProofResponse, BackendError> {
         let witness = parse_fields(&request.witness)?;
-        let proved = self.circuits.with(request.circuit_id, |compiled| {
-            self.proofs.with_two(
-                request.first_proof_id,
-                request.second_proof_id,
-                |first, second| {
-                    catch_unwind(AssertUnwindSafe(|| match compiled {
-                        CompiledCircuitResource::Standalone { n2, .. } => n2
-                            .as_ref()
-                            .ok_or_else(|| {
-                                BackendError::Proving("circuit was not compiled as N2".to_owned())
-                            })?
-                            .lock()
-                            .map_err(|_| {
-                                BackendError::Proving("compiled N2 lock poisoned".to_owned())
-                            })?
-                            .prove(first, second, witness)
-                            .map_err(|error| BackendError::Proving(format!("{error:?}"))),
-                        CompiledCircuitResource::ProgramBranch {
-                            program,
-                            branch_index,
-                            proofs_verified,
-                        } => {
-                            if *proofs_verified != 2 {
-                                return Err(BackendError::Proving(
-                                    "program branch does not verify exactly two proofs".to_owned(),
-                                ));
-                            }
-                            let handle = program
-                                .lock()
-                                .map_err(|_| {
+        let proved = self
+            .circuits
+            .with(request.circuit_id, |compiled| {
+                self.proofs.with_two(
+                    request.first_proof_id,
+                    request.second_proof_id,
+                    |first, second| {
+                        catch_unwind(AssertUnwindSafe(|| match compiled {
+                            CompiledCircuitResource::Standalone { n2, .. } => n2
+                                .as_ref()
+                                .ok_or_else(|| {
                                     BackendError::Proving(
-                                        "compiled program lock poisoned".to_owned(),
+                                        "circuit was not compiled as N2".to_owned(),
                                     )
                                 })?
-                                .prove_n2(*branch_index, [first, second], witness)
-                                .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
-                            recursive_envelope_n2(&handle)
-                        }
-                    }))
-                },
-            )
-        })??
-            .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
-            ?;
+                                .lock()
+                                .map_err(|_| {
+                                    BackendError::Proving("compiled N2 lock poisoned".to_owned())
+                                })?
+                                .prove(first, second, witness)
+                                .map_err(|error| BackendError::Proving(format!("{error:?}"))),
+                            CompiledCircuitResource::ProgramBranch {
+                                program,
+                                branch_index,
+                                proofs_verified,
+                            } => {
+                                if *proofs_verified != 2 {
+                                    return Err(BackendError::Proving(
+                                        "program branch does not verify exactly two proofs"
+                                            .to_owned(),
+                                    ));
+                                }
+                                let handle = program
+                                    .lock()
+                                    .map_err(|_| {
+                                        BackendError::Proving(
+                                            "compiled program lock poisoned".to_owned(),
+                                        )
+                                    })?
+                                    .prove_n2(*branch_index, [first, second], witness)
+                                    .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+                                recursive_envelope_n2(&handle)
+                            }
+                            CompiledCircuitResource::BaseProgramBranch { .. } => {
+                                Err(BackendError::Proving(
+                                    "a base program branch does not verify previous proofs"
+                                        .to_owned(),
+                                ))
+                            }
+                        }))
+                    },
+                )
+            })??
+            .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))??;
         Ok(RecursiveN2ProofResponse {
             app_state: fields_to_strings(&proved.app_state),
             proof: proved.proof.to_o1js_json_value(),
