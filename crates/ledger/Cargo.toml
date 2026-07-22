@@ -67,7 +67,7 @@ getrandom = { workspace = true, features = ["js"] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
+[target.'cfg(all(not(target_family = "wasm"), not(target_os = "android")))'.dependencies]
 zstd = { workspace = true, optional = true }
 reqwest = { workspace = true, features = ["blocking"] }
 

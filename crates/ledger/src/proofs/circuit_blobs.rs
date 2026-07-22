@@ -153,33 +153,49 @@ pub fn fetch_blocking(filename: &impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
         return std::fs::read(path);
     }
 
-    mina_core::info!(
-        mina_core::log::system_time();
-        kind = "ledger proofs",
-        message = "circuit-blobs not found locally, so fetching it...",
-        filename = filename.as_ref().to_str().unwrap(),
-    );
+    // Android clients bundle every circuit artifact they need. Pulling the
+    // node-only HTTP downloader into a mobile library would also require a
+    // desktop OpenSSL toolchain and would make proving depend on mutable remote
+    // files. Report a missing bundled artifact instead.
+    #[cfg(target_os = "android")]
+    return Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!(
+            "circuit blob {} is not bundled with the Android application",
+            filename.as_ref().display()
+        ),
+    ));
 
-    let base_dir = home_base_dir.expect("$HOME env not set!");
+    #[cfg(not(target_os = "android"))]
+    {
+        mina_core::info!(
+            mina_core::log::system_time();
+            kind = "ledger proofs",
+            message = "circuit-blobs not found locally, so fetching it...",
+            filename = filename.as_ref().to_str().unwrap(),
+        );
 
-    let bytes = reqwest::blocking::get(git_release_url(filename))
-        .map_err(to_io_err)?
-        .bytes()
-        .map_err(to_io_err)?
-        .to_vec();
+        let base_dir = home_base_dir.expect("$HOME env not set!");
 
-    // cache it to home dir.
-    let cache_path = base_dir.join(filename);
-    mina_core::info!(
-        mina_core::log::system_time();
-        kind = "ledger proofs",
-        message = "caching circuit-blobs",
-        path = cache_path.to_str().unwrap(),
-    );
-    let _ = std::fs::create_dir_all(cache_path.parent().unwrap());
-    let _ = std::fs::write(cache_path, &bytes);
+        let bytes = reqwest::blocking::get(git_release_url(filename))
+            .map_err(to_io_err)?
+            .bytes()
+            .map_err(to_io_err)?
+            .to_vec();
 
-    Ok(bytes)
+        // Cache it in the home directory.
+        let cache_path = base_dir.join(filename);
+        mina_core::info!(
+            mina_core::log::system_time();
+            kind = "ledger proofs",
+            message = "caching circuit-blobs",
+            path = cache_path.to_str().unwrap(),
+        );
+        let _ = std::fs::create_dir_all(cache_path.parent().unwrap());
+        let _ = std::fs::write(cache_path, &bytes);
+
+        Ok(bytes)
+    }
 }
 
 #[cfg(target_family = "wasm")]
