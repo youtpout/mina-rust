@@ -492,9 +492,13 @@ impl Backend {
         request: ProveCircuitRequest,
     ) -> Result<ProofResponse, BackendError> {
         let witness = parse_fields(&request.witness)?;
-        let proved = self.circuits.with(request.circuit_id, |compiled| {
+        let (proved, transaction_proof) = self.circuits.with(request.circuit_id, |compiled| {
             catch_unwind(AssertUnwindSafe(|| {
-                prove_base_handle(compiled, witness).map(|handle| handle.to_recorded_proof())
+                let handle = prove_base_handle(compiled, witness)?;
+                let transaction_proof = handle
+                    .to_transaction_base64()
+                    .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+                Ok::<_, BackendError>((handle.to_recorded_proof(), transaction_proof))
             }))
         })?
         .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
@@ -502,6 +506,7 @@ impl Backend {
         Ok(ProofResponse {
             app_state: fields_to_strings(&proved.app_state),
             proof: proved.proof.to_o1js_json_value(),
+            transaction_proof: Some(transaction_proof),
         })
     }
 
@@ -542,11 +547,15 @@ impl Backend {
         .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))?
         ?;
         let envelope = handle.to_recorded_proof();
+        let transaction_proof = handle
+            .to_transaction_base64()
+            .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
         let proof_id = self.proofs.insert(handle)?;
         Ok(KeptProofResponse {
             proof_id,
             app_state: fields_to_strings(&envelope.app_state),
             proof: envelope.proof.to_o1js_json_value(),
+            transaction_proof: Some(transaction_proof),
         })
     }
 
@@ -1049,6 +1058,13 @@ mod tests {
             })
             .unwrap();
         assert_eq!(proof.app_state, ["36"]);
+        let transaction_proof = proof
+            .transaction_proof
+            .as_ref()
+            .expect("base proofs must include a Mina transaction authorization");
+        let _: mina_p2p_messages::v2::PicklesProofProofsVerifiedMaxStableV2 =
+            serde_json::from_value(serde_json::Value::String(transaction_proof.clone()))
+                .expect("transaction authorization must use Mina's base64 S-expression format");
         assert!(
             backend
                 .verify_proof(VerifyProofRequest {

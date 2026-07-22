@@ -118,6 +118,10 @@ pub struct ProveCircuitN2OverRequest {
 pub struct ProofResponse {
     pub app_state: Vec<String>,
     pub proof: O1jsWrapProofJson,
+    /// Mina transaction authorization proof (base64-encoded S-expression).
+    /// This is the value expected by an account update's `authorization.proof`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction_proof: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +130,10 @@ pub struct KeptProofResponse {
     pub proof_id: ResourceId,
     pub app_state: Vec<String>,
     pub proof: O1jsWrapProofJson,
+    /// Mina transaction authorization proof (base64-encoded S-expression).
+    /// This is the value expected by an account update's `authorization.proof`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction_proof: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
