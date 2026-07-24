@@ -261,10 +261,11 @@ impl rsexp::OfSexp for LimbVectorConstantHex64StableV1 {
 
 impl rsexp::SexpOf for LimbVectorConstantHex64StableV1 {
     fn sexp_of(&self) -> rsexp::Sexp {
+        // Bare 16-digit lowercase hex, exactly like the OCaml
+        // `Limb_vector.Constant.Hex64.sexp_of_t` (no `0x` prefix); the
+        // daemon's `of_sexp` and our own `OfSexp` above reject anything else.
         let value: u64 = self.0.as_u64();
-        let hex_str = format!("{:016x}", value);
-
-        rsexp::Sexp::Atom(format!("0x{}", hex_str).into_bytes())
+        rsexp::Sexp::Atom(format!("{:016x}", value).into_bytes())
     }
 }
 
@@ -1930,6 +1931,19 @@ mod test {
         let verification_key =
             v2::MinaBaseVerificationKeyWireStableV1::binprot_read(&mut decoded.as_slice());
         assert!(verification_key.is_ok());
+    }
+
+    #[test]
+    fn limb_vector_sexp_round_trips_in_ocaml_format() {
+        use rsexp::{OfSexp, SexpOf};
+
+        let limb = v2::LimbVectorConstantHex64StableV1(0x74ac_f874_227a_e262_u64.into());
+        let sexp = limb.sexp_of();
+        // The OCaml `Limb_vector.Constant.Hex64` sexp is a bare 16-digit
+        // lowercase hex atom; a `0x` prefix breaks the daemon's parser.
+        assert_eq!(sexp, rsexp::Sexp::Atom(b"74acf874227ae262".to_vec()));
+        let decoded = v2::LimbVectorConstantHex64StableV1::of_sexp(&sexp).unwrap();
+        assert_eq!(decoded, limb);
     }
 
     #[test]
