@@ -341,13 +341,43 @@ impl Backend {
                     proofs_verified: 0,
                 });
             }
-            let program = catch_unwind(AssertUnwindSafe(|| {
-                RecordedCompiledBaseProgram::compile(program_branches)
-            }))
-            .map_err(|_| {
-                BackendError::Proving("the Pickles base program compiler panicked".to_owned())
-            })?
-            .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+            use base64::prelude::*;
+            // A cache payload carries only verifier indexes, so restoring
+            // skips the column commitments that dominate a cold compile. A
+            // stale or corrupt payload falls back to compiling.
+            let restored = request
+                .cache_bytes_base64
+                .as_deref()
+                .and_then(|payload| BASE64_STANDARD.decode(payload).ok())
+                .and_then(|bytes| {
+                    let branches = program_branches.clone();
+                    catch_unwind(AssertUnwindSafe(|| {
+                        RecordedCompiledBaseProgram::from_cache_bytes(branches, &bytes)
+                    }))
+                    .ok()
+                    .and_then(|result| result.ok())
+                });
+            let restored_from_cache = restored.is_some();
+            let program = match restored {
+                Some(program) => program,
+                None => catch_unwind(AssertUnwindSafe(|| {
+                    RecordedCompiledBaseProgram::compile(program_branches)
+                }))
+                .map_err(|_| {
+                    BackendError::Proving("the Pickles base program compiler panicked".to_owned())
+                })?
+                .map_err(|error| BackendError::Proving(format!("{error:?}")))?,
+            };
+            let cache_bytes_base64 = if request.want_cache_bytes {
+                Some(
+                    program
+                        .to_cache_bytes()
+                        .map(|bytes| BASE64_STANDARD.encode(bytes))
+                        .map_err(BackendError::Serialization)?,
+                )
+            } else {
+                None
+            };
             let (verification_key_base64, verification_key_hash) = program
                 .verification_key_envelope()
                 .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
@@ -384,8 +414,8 @@ impl Backend {
             }
             return Ok(CompileProgramResponse {
                 branches,
-                cache_bytes_base64: None,
-                restored_from_cache: false,
+                cache_bytes_base64,
+                restored_from_cache,
             });
         }
         // OCaml `Pickles.compile` shape: ONE shared wrap circuit and
