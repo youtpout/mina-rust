@@ -286,6 +286,11 @@ pub struct SeedSrsCacheRequest {
     pub payload_base64: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_log2: Option<u32>,
+    /// Reads the compact binary layout instead of the o1js `Cache` JSON.
+    /// It holds the same points in about a third of the bytes, but only
+    /// this implementation understands it.
+    #[serde(default)]
+    pub raw: bool,
 }
 
 /// Exports the in-process SRS (`domain_log2` absent) or a Lagrange basis
@@ -296,6 +301,9 @@ pub struct ExportSrsCacheRequest {
     pub curve: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_log2: Option<u32>,
+    /// Writes the compact binary layout instead of the o1js `Cache` JSON.
+    #[serde(default)]
+    pub raw: bool,
 }
 
 /// The exported jsoo payload, base64 on the wire; `None` when the SRS or

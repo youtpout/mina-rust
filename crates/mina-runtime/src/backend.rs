@@ -530,11 +530,19 @@ impl Backend {
         let bytes = BASE64_STANDARD
             .decode(&request.payload_base64)
             .map_err(|error| BackendError::Serialization(format!("srs payload: {error}")))?;
-        Ok(match request.domain_log2 {
-            Some(domain_log2) => {
+        Ok(match (request.domain_log2, request.raw) {
+            (Some(domain_log2), true) => {
+                pickles::common::seed_lagrange_basis_raw(&request.curve, domain_log2, &bytes)
+            }
+            (Some(domain_log2), false) => {
                 pickles::common::seed_lagrange_basis_jsoo(&request.curve, domain_log2, &bytes)
             }
-            None => match request.curve.as_str() {
+            (None, true) => match request.curve.as_str() {
+                "vesta" => pickles::common::seed_tick_srs_raw(&bytes),
+                "pallas" => pickles::common::seed_tock_srs_raw(&bytes),
+                _ => false,
+            },
+            (None, false) => match request.curve.as_str() {
                 "vesta" => pickles::common::seed_tick_srs_jsoo(&bytes),
                 "pallas" => pickles::common::seed_tock_srs_jsoo(&bytes),
                 _ => false,
@@ -547,11 +555,19 @@ impl Backend {
     /// materialized in this process.
     pub fn export_srs_cache(request: ExportSrsCacheRequest) -> SrsCachePayloadResponse {
         use base64::prelude::*;
-        let payload = match request.domain_log2 {
-            Some(domain_log2) => {
+        let payload = match (request.domain_log2, request.raw) {
+            (Some(domain_log2), true) => {
+                pickles::common::export_lagrange_basis_raw(&request.curve, domain_log2)
+            }
+            (Some(domain_log2), false) => {
                 pickles::common::export_lagrange_basis_jsoo(&request.curve, domain_log2)
             }
-            None => match request.curve.as_str() {
+            (None, true) => match request.curve.as_str() {
+                "vesta" => pickles::common::export_tick_srs_raw(),
+                "pallas" => pickles::common::export_tock_srs_raw(),
+                _ => None,
+            },
+            (None, false) => match request.curve.as_str() {
                 "vesta" => pickles::common::export_tick_srs_jsoo(),
                 "pallas" => pickles::common::export_tock_srs_jsoo(),
                 _ => None,
