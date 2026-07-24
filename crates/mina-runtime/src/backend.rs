@@ -603,9 +603,11 @@ impl Backend {
             .with(request.circuit_id, |compiled| {
                 catch_unwind(AssertUnwindSafe(|| {
                     let handle = prove_base_handle(compiled, witness)?;
-                    let transaction_proof = handle
-                        .to_transaction_base64()
-                        .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+                    // Only a base (R16) proof authorizes a Mina account
+                    // update. Other shapes -- a ZkProgram branch, say -- are
+                    // proved just as well, they simply have no transaction
+                    // encoding, so the field stays empty instead of failing.
+                    let transaction_proof = handle.to_transaction_base64().ok();
                     Ok::<_, BackendError>((handle.to_recorded_proof(), transaction_proof))
                 }))
             })?
@@ -613,7 +615,7 @@ impl Backend {
         Ok(ProofResponse {
             app_state: fields_to_strings(&proved.app_state),
             proof: proved.proof.to_o1js_json_value(),
-            transaction_proof: Some(transaction_proof),
+            transaction_proof,
         })
     }
 
@@ -655,15 +657,14 @@ impl Backend {
             })?
             .map_err(|_| BackendError::Proving("the Pickles prover panicked".to_owned()))??;
         let envelope = handle.to_recorded_proof();
-        let transaction_proof = handle
-            .to_transaction_base64()
-            .map_err(|error| BackendError::Proving(format!("{error:?}")))?;
+        // See `prove_circuit`: a non-base proof has no transaction encoding.
+        let transaction_proof = handle.to_transaction_base64().ok();
         let proof_id = self.proofs.insert(handle)?;
         Ok(KeptProofResponse {
             proof_id,
             app_state: fields_to_strings(&envelope.app_state),
             proof: envelope.proof.to_o1js_json_value(),
-            transaction_proof: Some(transaction_proof),
+            transaction_proof,
         })
     }
 
