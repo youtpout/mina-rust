@@ -530,21 +530,23 @@ impl Backend {
         let bytes = BASE64_STANDARD
             .decode(&request.payload_base64)
             .map_err(|error| BackendError::Serialization(format!("srs payload: {error}")))?;
-        Ok(match (request.domain_log2, request.raw) {
-            (Some(domain_log2), true) => {
+        // Either layout is accepted: the compact one is magic-tagged, so the
+        // payload identifies itself and a cache written by one transport (or
+        // by jsoo) still seeds. `raw` only decides what `export` writes.
+        Ok(match request.domain_log2 {
+            Some(domain_log2) => {
                 pickles::common::seed_lagrange_basis_raw(&request.curve, domain_log2, &bytes)
+                    || pickles::common::seed_lagrange_basis_jsoo(&request.curve, domain_log2, &bytes)
             }
-            (Some(domain_log2), false) => {
-                pickles::common::seed_lagrange_basis_jsoo(&request.curve, domain_log2, &bytes)
-            }
-            (None, true) => match request.curve.as_str() {
-                "vesta" => pickles::common::seed_tick_srs_raw(&bytes),
-                "pallas" => pickles::common::seed_tock_srs_raw(&bytes),
-                _ => false,
-            },
-            (None, false) => match request.curve.as_str() {
-                "vesta" => pickles::common::seed_tick_srs_jsoo(&bytes),
-                "pallas" => pickles::common::seed_tock_srs_jsoo(&bytes),
+            None => match request.curve.as_str() {
+                "vesta" => {
+                    pickles::common::seed_tick_srs_raw(&bytes)
+                        || pickles::common::seed_tick_srs_jsoo(&bytes)
+                }
+                "pallas" => {
+                    pickles::common::seed_tock_srs_raw(&bytes)
+                        || pickles::common::seed_tock_srs_jsoo(&bytes)
+                }
                 _ => false,
             },
         })
