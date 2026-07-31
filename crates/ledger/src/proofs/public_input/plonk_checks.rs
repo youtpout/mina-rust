@@ -610,13 +610,34 @@ mod scalars {
         pub joint_combiner: Option<F>,
     }
 
+    /// A `ConstantExpr` is itself a tree of operations, so a combination of
+    /// constant atoms is constant. Challenges are not: they are only known at
+    /// proving time and have to be witnessed.
+    fn is_const_expr<F: FieldWitness>(e: &ConstantExpr<F, BerkeleyChallengeTerm>) -> bool {
+        match e {
+            Operations::Atom(ConstantExprInner::Constant(_)) => true,
+            Operations::Atom(ConstantExprInner::Challenge(_)) => false,
+            Operations::Add(x, y) | Operations::Mul(x, y) | Operations::Sub(x, y) => {
+                is_const_expr(x) && is_const_expr(y)
+            }
+            Operations::Double(x) | Operations::Square(x) | Operations::Pow(x, _) => {
+                is_const_expr(x)
+            }
+            _ => false,
+        }
+    }
+
     // TODO: Use cvar instead
     fn is_const<F: FieldWitness>(e: &Expr<ConstantExpr<F, BerkeleyChallengeTerm>, Column>) -> bool {
         match e {
-            Expr::Atom(ExprInner::Constant(Operations::Atom(ConstantExprInner::Constant(_)))) => {
-                true
-            }
+            Expr::Atom(ExprInner::Constant(c)) => is_const_expr(c),
             Expr::Pow(x, _) => is_const(x),
+            // The migration replaced `Expr::BinOp(_, x, y)` with the separate
+            // `Add`/`Mul`/`Sub` variants and dropped the recursion, so a
+            // combination of constants stopped being recognised as constant
+            // and `eval` took its witness-allocating branch for it.
+            Expr::Add(x, y) | Expr::Mul(x, y) | Expr::Sub(x, y) => is_const(x) && is_const(y),
+            Expr::Double(x) | Expr::Square(x) => is_const(x),
             _ => false,
         }
     }
@@ -638,7 +659,18 @@ mod scalars {
                     ctx.env.unnormalized_lagrange_basis.as_ref().unwrap();
                 unnormalized_lagrange_basis(*row_offset, ctx.w)
             }
-            Operations::Atom(ExprInner::Constant(c)) => sub_eval(c, ctx),
+            Operations::Atom(ExprInner::Constant(c)) => {
+                // A `ConstantExpr` depends only on constants and challenges, so
+                // it is evaluated out of circuit; only the top-level `Mul` is
+                // witnessed. This is the behaviour documented on `sub_eval`.
+                // Evaluating with `sub_eval` instead allocates a witness value
+                // at every `Mul`/`Square`/`Pow` of the tree.
+                let v = const_eval(c, ctx);
+                if let Operations::Mul(_, _) = c {
+                    ctx.w.exists_no_check(v);
+                };
+                v
+            }
             Operations::Pow(x, p) => {
                 let p = *p;
                 let v = eval(x, ctx);
@@ -712,6 +744,59 @@ mod scalars {
     ///    ctx.w.exists_no_check(v);
     /// };
     /// v
+    /// Evaluates a `ConstantExpr` out of circuit: no witness value is
+    /// allocated anywhere in the tree. Challenges are read from the context,
+    /// which is what makes the result circuit-independent.
+    pub fn const_eval<F: FieldWitness>(
+        e: &Operations<ConstantExprInner<F, BerkeleyChallengeTerm>>,
+        ctx: &mut EvalContext<F>,
+    ) -> F {
+        use Operations;
+        match e {
+            Operations::Atom(a) => match a {
+                ConstantExprInner::Challenge(term) => match term {
+                    BerkeleyChallengeTerm::Alpha => ctx.alpha,
+                    BerkeleyChallengeTerm::Beta => ctx.beta,
+                    BerkeleyChallengeTerm::Gamma => ctx.gamma,
+                    BerkeleyChallengeTerm::JointCombiner => ctx.joint_combiner.expect("Unexcepted"),
+                },
+                ConstantExprInner::Constant(constant_term) => match constant_term {
+                    kimchi::circuits::expr::ConstantTerm::EndoCoefficient => {
+                        ctx.constants.endo_coefficient
+                    }
+                    kimchi::circuits::expr::ConstantTerm::Mds { row, col } => {
+                        ctx.constants.mds[*row][*col]
+                    }
+                    kimchi::circuits::expr::ConstantTerm::Literal(literal) => *literal,
+                },
+            },
+            Operations::Pow(x, p) => pow_const(const_eval(x, ctx), *p),
+            Operations::Add(x, y) => {
+                let y = const_eval(y, ctx);
+                let x = const_eval(x, ctx);
+                x + y
+            }
+            Operations::Mul(x, y) => {
+                let y = const_eval(y, ctx);
+                let x = const_eval(x, ctx);
+                x * y
+            }
+            Operations::Sub(x, y) => {
+                let x = const_eval(x, ctx);
+                let y = const_eval(y, ctx);
+                x - y
+            }
+            Operations::Double(x) => const_eval(x, ctx).double(),
+            Operations::Square(x) => {
+                let x = const_eval(x, ctx);
+                x * x
+            }
+            Operations::Cache(id, _e) => ctx.cache.get(id).copied().unwrap(),
+            other => unimplemented!("const_eval: {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn sub_eval<F: FieldWitness>(
         e: &Operations<ConstantExprInner<F, BerkeleyChallengeTerm>>,
         ctx: &mut EvalContext<F>,

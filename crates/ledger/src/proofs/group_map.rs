@@ -113,8 +113,10 @@ fn sqrt_exn<F: FieldWitness>(x: F, w: &mut Witness<F>) -> F {
 }
 
 fn is_square<F: FieldWitness>(x: F) -> bool {
-    let modulus_minus_one_div_two =
-        mina_curves::pasta::fields::FpParameters::MODULUS_MINUS_ONE_DIV_TWO.0;
+    // Euler's criterion, which needs the modulus of `F` itself. Hardcoding
+    // `Fp`'s here makes every call on `Fq` -- the whole wrap side -- answer
+    // with the wrong exponent, so `sqrt_exn` then unwraps a non-residue.
+    let modulus_minus_one_div_two = <F as ark_ff::PrimeField>::MODULUS_MINUS_ONE_DIV_TWO;
 
     let s = x.pow(modulus_minus_one_div_two);
     s.is_zero() || s.is_one()
