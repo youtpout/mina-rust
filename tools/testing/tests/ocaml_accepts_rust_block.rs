@@ -23,7 +23,10 @@
 
 use std::time::Duration;
 
-use mina_node::{account::AccountSecretKey, block_producer::BlockProducerConfig};
+use mina_node::{
+    account::AccountSecretKey, block_producer::BlockProducerConfig,
+    transition_frontier::genesis::GenesisConfig, ActionKind,
+};
 use mina_node_testing::{
     cluster::{Cluster, ClusterConfig, ProofKind},
     node::{
@@ -31,7 +34,7 @@ use mina_node_testing::{
         RustNodeBlockProducerTestingConfig, RustNodeTestingConfig,
     },
     scenario::{ListenerNode, ScenarioStep},
-    scenarios::{ClusterRunner, RunCfg},
+    scenarios::{ClusterRunner, RunCfg, RunCfgAdvanceTime},
     setup_without_rt, wait_for_other_tests,
 };
 
@@ -69,6 +72,18 @@ async fn ocaml_accepts_rust_block() {
     setup_without_rt();
     let w = wait_for_other_tests().await;
 
+    // Without this, libp2p filters out private addresses and the two nodes
+    // never find each other on the loopback. Every OCaml/Rust scenario in this
+    // repo sets it.
+    std::env::set_var("MINA_DISCOVERY_FILTER_ADDR", "false");
+    // Proving saturates every core through rayon, and the OCaml daemon kills
+    // itself when its Rpc_parallel children miss heartbeats for 15 minutes.
+    // Leave it some room.
+    if std::env::var("RAYON_NUM_THREADS").is_err() {
+        let n = (std::thread::available_parallelism().map_or(4, |n| n.get()) * 2 / 3).max(2);
+        std::env::set_var("RAYON_NUM_THREADS", n.to_string());
+    }
+
     let mut config = ClusterConfig::new(None).expect("failed to create cluster configuration");
     config.set_proof_kind(ProofKind::Full);
     config.set_ocaml_node_executable(OcamlNodeExecutable::Docker(OCAML_IMAGE.to_owned()));
@@ -77,30 +92,35 @@ async fn ocaml_accepts_rust_block() {
     let mut runner = ClusterRunner::new(&mut cluster, |_| {});
 
     let daemon_json = runner.daemon_json_gen_with_counts(&genesis_timestamp(), 1, 1);
+
+    // Both nodes must be given the *same* genesis. Handing the Rust node
+    // `DEVNET_CONFIG` instead leaves it computing the current epoch from
+    // devnet's 2024 genesis timestamp while the chain it syncs starts minutes
+    // ago, so its VRF evaluator looks at epoch 56 for a chain at epoch 0 and
+    // never finds a won slot.
+    let DaemonJson::InMem(genesis_json) = &daemon_json else {
+        panic!("expected a generated in-memory daemon.json");
+    };
+    let genesis = std::sync::Arc::new(GenesisConfig::DaemonJson(Box::new(
+        serde_json::from_value(genesis_json.clone()).expect("daemon.json is not a valid genesis"),
+    )));
+
     let producer_sec_key = first_whale_sec_key(&daemon_json);
     let producer_pub_key = producer_sec_key.public_key();
     eprintln!("block producer: {producer_pub_key}");
 
-    let ocaml_node = runner.add_ocaml_node(OcamlNodeTestingConfig {
-        initial_peers: Vec::new(),
-        daemon_json,
-        block_producer: None,
-    });
-
-    eprintln!("waiting for the ocaml node to be ready");
-    runner
-        .exec_step(ScenarioStep::Ocaml {
-            node_id: ocaml_node,
-            step: OcamlStep::WaitReady {
-                timeout: Duration::from_secs(10 * 60),
-            },
-        })
-        .await
-        .unwrap();
-
+    // The Rust node comes up first so the OCaml node can be given its address
+    // as an initial peer. A Rust node that merely dials out is good enough to
+    // sync from, but the OCaml node then does not count it as a peer and never
+    // puts it in its gossip mesh, so a produced block never reaches it. This is
+    // the shape `multi_node::connection_discovery::RustNodeAsSeed` uses, and it
+    // is the only one in this repo where an OCaml node actually receives data
+    // from a Rust one. Building the Rust genesis from the same daemon.json is
+    // what makes this ordering possible: it no longer has to sync before it can
+    // do anything.
     let rust_node = runner.add_rust_node(RustNodeTestingConfig {
         initial_time: redux::Timestamp::global_now(),
-        genesis: mina_node::config::DEVNET_CONFIG.clone(),
+        genesis,
         max_peers: 100,
         initial_peers: Vec::new(),
         peer_id: Default::default(),
@@ -119,6 +139,57 @@ async fn ocaml_accepts_rust_block() {
         peer_discovery: true,
     });
 
+    eprintln!("waiting for the rust node's p2p to initialize");
+    runner
+        .run(
+            RunCfg::default()
+                .advance_time(RunCfgAdvanceTime::Real)
+                .action_handler(move |id, _, _, action| {
+                    id == rust_node
+                        && matches!(action.action().kind(), ActionKind::P2pInitializeInitialize)
+                }),
+        )
+        .await
+        .expect("rust node p2p never initialized");
+
+    let rust_dial_addr = runner.node(rust_node).unwrap().dial_addr();
+    eprintln!("rust node listening at {rust_dial_addr}");
+
+    // The address the Rust node advertises is on the loopback, which is useless
+    // to the OCaml node under Docker Desktop: the container's 127.0.0.1 is the
+    // Linux VM's loopback, not this host's. Inbound works, since the container
+    // binds host ports, but outbound to a process listening on the host
+    // loopback does not. The cluster binds on 0.0.0.0, so any address the
+    // container can route to will do. On Linux, where the container really does
+    // share the host network, leaving MINA_TEST_HOST_ADDR unset is correct.
+    let ocaml_peer = match std::env::var("MINA_TEST_HOST_ADDR") {
+        Ok(host) => rust_dial_addr
+            .to_string()
+            .replace("127.0.0.1", &host)
+            .parse()
+            .expect("could not rebuild the dial address for the container"),
+        Err(_) => rust_dial_addr,
+    };
+    eprintln!("giving the ocaml node peer {ocaml_peer}");
+
+    let ocaml_node = runner.add_ocaml_node(OcamlNodeTestingConfig {
+        initial_peers: vec![ocaml_peer],
+        daemon_json,
+        block_producer: None,
+    });
+
+    eprintln!("waiting for the ocaml node to be ready");
+    runner
+        .exec_step(ScenarioStep::Ocaml {
+            node_id: ocaml_node,
+            step: OcamlStep::WaitReady {
+                timeout: Duration::from_secs(10 * 60),
+            },
+        })
+        .await
+        .unwrap();
+
+    // Dial the other way too, so neither direction is load-bearing on its own.
     runner
         .exec_step(ScenarioStep::ConnectNodes {
             dialer: rust_node,
@@ -130,11 +201,13 @@ async fn ocaml_accepts_rust_block() {
     eprintln!("waiting for the rust node to sync from the ocaml node");
     runner
         .run(
-            RunCfg::default().action_handler(move |node_id, state, _, _| {
-                node_id == rust_node
-                    && state.transition_frontier.sync.is_synced()
-                    && state.transition_frontier.best_tip().is_some()
-            }),
+            RunCfg::default()
+                .advance_time(RunCfgAdvanceTime::Real)
+                .action_handler(move |node_id, state, _, _| {
+                    node_id == rust_node
+                        && state.transition_frontier.sync.is_synced()
+                        && state.transition_frontier.best_tip().is_some()
+                }),
         )
         .await
         .expect("rust node did not sync from the ocaml node");
@@ -152,6 +225,7 @@ async fn ocaml_accepts_rust_block() {
     runner
         .run(
             RunCfg::default()
+                .advance_time(RunCfgAdvanceTime::Real)
                 .timeout(Duration::from_secs(30 * 60))
                 .action_handler(move |node_id, state, _, _| {
                     node_id == rust_node
